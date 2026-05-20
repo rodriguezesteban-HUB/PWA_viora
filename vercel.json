@@ -1,4 +1,7 @@
 {
+  "env": {
+    "JWT_SECRET": "viora-vercel-deploy-secret-2026"
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
