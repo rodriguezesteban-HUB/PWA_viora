@@ -1105,6 +1105,8 @@ img{display:block;max-width:100%}
           <option value="semanal">Semanal</option>
           <option value="unica">Única vez</option>
         </select>
+        <input type="number" id="newTaskTarget" placeholder="Cantidad meta (ej: 8)" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
+        <input type="text" id="newTaskUnit" placeholder="Medida (ej: vasos de agua)" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
         <button class="btn-primary" onclick="addTask()">Crear tarea</button>
       </div>
     </div>
@@ -1395,6 +1397,9 @@ function normalizeTask(t){
     requiresPhoto:category==='gym',
     verified:Boolean(t.verified),
     createdAt:t.createdAt||t.created_at||null,
+    target:Number(t.target||1),
+    current:Number(t.current||0),
+    unit:t.unit||'veces'
   };
 }
 function normalizeHabit(h){
@@ -1525,11 +1530,17 @@ function taskHTML(t,showPhoto=true){
   const needsPhoto=t.requiresPhoto&&!t.verified;
   const photoBtn=showPhoto&&needsPhoto?
     `<button class="task-photo-btn" type="button" data-task-id="${taskId}" title="Verificar con foto"><i class="fa fa-camera"></i><span>Verificar</span></button>`:'';
+  
+  const isMeasurable = t.target > 1;
+  const metaText = isMeasurable 
+      ? `${t.current||0} / ${t.target} ${escapeHTML(t.unit||'veces')} · ${t.done?'Completado':'Pendiente'}`
+      : `${t.done?'Completado':'Pendiente'}`;
+
   return `<div class="task-item${t.done?' done':''}" id="task-${taskId}" data-task-id="${taskId}" role="button" tabindex="0">
-    <div class="task-check${t.done?' done':''}">${t.done?'<i class="fa fa-check"></i>':''}</div>
+    <div class="task-check${t.done?' done':''}">${t.done?'<i class="fa fa-check"></i>':(isMeasurable?'<i class="fa fa-plus"></i>':'')}</div>
     <div class="task-body">
       <div class="task-name${t.done?' done':''}">${t.name}</div>
-      <div class="task-meta">${t.done?'Completado':'Pendiente'}${t.requiresPhoto?' · requiere cámara':''}</div>
+      <div class="task-meta">${metaText}${t.requiresPhoto?' · requiere cámara':''}</div>
     </div>
     <div class="task-right">
       <span class="tag tag-cat-${escapeHTML(category)}">${escapeHTML(categoryLabel)}</span>
@@ -1570,11 +1581,26 @@ function toggleTask(id){
   const t=state.tasks.find(x=>x.id===id);
   if(!t)return;
   if(t.requiresPhoto&&!t.verified){openPhotoModal(id);return}
-  t.done=!t.done;
+  
+  if (t.target > 1) {
+    if (t.done) {
+      t.done = false;
+      t.current = 0;
+    } else {
+      t.current = (Number(t.current) || 0) + 1;
+      if (t.current >= t.target) t.done = true;
+    }
+  } else {
+    t.done = !t.done;
+    t.current = t.done ? 1 : 0;
+  }
+  
   renderHomeTaskPreview();renderFullTasks();updateKPIs();
+  
   if(t.done)showToast('Tarea completada ✅','success');
-  // API call
-  apiFetch(`${API}/tasks/${id}/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:t.done})})
+  else if(t.target > 1 && !t.done && t.current > 0) showToast(`${t.current} / ${t.target} ${t.unit} registrados`,'info');
+
+  apiFetch(`${API}/tasks/${id}/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:t.done, current:t.current})})
     .then(async r=>{if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Error')})
     .catch(()=>{showToast('No pude guardar el cambio','error');loadVioraData()});
 }
@@ -1585,7 +1611,11 @@ async function addTask(){
   const name=document.getElementById('newTaskName').value.trim();
   if(!name){showToast('Escribe el nombre de la tarea','error');return}
   const category=document.getElementById('newTaskCategory').value;
-  const t={name,category,period:document.getElementById('newTaskPeriod').value};
+  const targetVal = document.getElementById('newTaskTarget').value;
+  const target = targetVal && !isNaN(targetVal) ? Number(targetVal) : 1;
+  const unit = document.getElementById('newTaskUnit').value.trim() || 'veces';
+  
+  const t={name,category,period:document.getElementById('newTaskPeriod').value,target,unit};
   try{
     const response=await apiFetch(`${API}/tasks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
     const payload=await response.json().catch(()=>({}));
@@ -1596,6 +1626,8 @@ async function addTask(){
     showToast('Tarea creada 🎉','success');
     document.getElementById('newTaskName').value='';
     document.getElementById('newTaskCategory').value='gym';
+    document.getElementById('newTaskTarget').value='';
+    document.getElementById('newTaskUnit').value='';
   }catch(err){
     console.error('Error creando tarea:',err);
     showToast(err.message||'No pude crear la tarea','error');

@@ -1102,6 +1102,9 @@ def create_task():
             "done": False,
             "requires_photo": requires_photo,
             "verified": False,
+            "unit": body.get("unit", "veces"),
+            "target": float(body.get("target", 1) or 1),
+            "current": 0
         }
         try:
             res = supabase.table("tasks").insert(payload).execute()
@@ -1208,11 +1211,19 @@ def complete_task(task_id):
             if not res.data:
                 return err("Tarea no encontrada", 404)
             current = res.data[0]
-            new_done = body.get("done", not current.get("done", False))
+            if "current" in body:
+                raw_current = float(body.get("current"))
+                new_done = body.get("done", raw_current >= float(current.get("target", 1) or 1))
+                updates = {"done": bool(new_done), "current": raw_current}
+            else:
+                new_done = body.get("done", not current.get("done", False))
+                updates = {"done": bool(new_done)}
+
             mapped_current = map_task_row(current)
             if bool(new_done) and task_requires_camera_verification(mapped_current) and not mapped_current.get("verified"):
                 return err("Las tareas de gym requieren una foto tomada con cámara y verificada por IA", 403)
-            upd = supabase.table("tasks").update({"done": bool(new_done)}).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
+            
+            upd = supabase.table("tasks").update(updates).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
             task = map_task_row(upd.data[0]) if upd.data else map_task_row({**current, "done": new_done})
 
             tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
@@ -1226,7 +1237,12 @@ def complete_task(task_id):
     if not task:
         return err("Tarea no encontrada", 404)
 
-    new_done = body.get("done", not task["done"])
+    if "current" in body:
+        task["current"] = float(body["current"])
+        new_done = body.get("done", task["current"] >= float(task.get("target", 1) or 1))
+    else:
+        new_done = body.get("done", not task.get("done", False))
+
     mapped_task = map_task_row(task)
     if bool(new_done) and task_requires_camera_verification(mapped_task) and not mapped_task.get("verified"):
         return err("Las tareas de gym requieren una foto tomada con cámara y verificada por IA", 403)
