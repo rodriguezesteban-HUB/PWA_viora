@@ -1,0 +1,9 @@
+nohup: ignoring input
+127.0.0.1 - - [19/May/2026 00:04:35] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [19/May/2026 00:04:35] "GET /script.js HTTP/1.1" 200 -
+127.0.0.1 - - [19/May/2026 00:04:37] code 404, message File not found
+127.0.0.1 - - [19/May/2026 00:04:37] "GET /favicon.ico HTTP/1.1" 404 -
+127.0.0.1 - - [19/May/2026 00:13:17] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [19/May/2026 00:13:18] "GET /script.js HTTP/1.1" 200 -
+127.0.0.1 - - [19/May/2026 00:13:19] code 404, message File not found
+127.0.0.1 - - [19/May/2026 00:13:19] "GET /favicon.ico HTTP/1.1" 404 -

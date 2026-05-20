@@ -1,0 +1,31 @@
+{
+  "tasks": [
+    {
+      "id": "86b68a68-a483-4212-b938-5ffc5db97efc",
+      "name": "Tomar agua",
+      "description": "Mantente hidratado durante toda la semana",
+      "unit": "litros",
+      "target": 1000.0,
+      "frequency": "weekly",
+      "current": 0,
+      "status": "active",
+      "created_at": "2026-05-06T15:44:09.261756",
+      "last_reset": "2026-05-06T15:44:09.261762"
+    },
+    {
+      "id": "7b4b1d7d-f717-4cd7-9b43-f9b6208a7fbd",
+      "name": "Ir al gimnasio",
+      "description": "Debo ir a entrenar minimo 4 veces a la semana\n",
+      "unit": "repeticiones",
+      "target": 4.0,
+      "frequency": "weekly",
+      "current": 250.0,
+      "status": "active",
+      "created_at": "2026-05-06T15:47:23.502381",
+      "last_reset": "2026-05-06T15:47:23.502388"
+    }
+  ],
+  "habits": [],
+  "expenses": [],
+  "income": []
+}
