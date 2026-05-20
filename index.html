@@ -735,7 +735,7 @@ img{display:block;max-width:100%}
     <div class="page active" id="page-home">
       <div class="greeting">
         <div class="greeting-sub" id="homeDate">Martes · 13 mayo 2025</div>
-        <div class="greeting-name" id="greeting-name">Hola 👋</div>
+        <div class="greeting-name" id="greeting-name" style="cursor:pointer" title="Editar nombre" onclick="editProfileName()">Hola 👋</div>
       </div>
 
       <!-- STREAK -->
@@ -867,7 +867,7 @@ img{display:block;max-width:100%}
                 transform="rotate(-90 30 30)" id="finRing"/>
             </svg>
             <div class="fin-ring-center">
-              <div class="fin-ring-pct">64%</div>
+              <div class="fin-ring-pct" id="finRingPct">0%</div>
               <div class="fin-ring-sub">ahorro</div>
             </div>
           </div>
@@ -919,7 +919,7 @@ img{display:block;max-width:100%}
       </div>
       <div class="profile-hero">
         <div class="profile-avatar" id="profileAvatar">US</div>
-        <div class="profile-name" id="profileName">Usuario</div>
+        <div class="profile-name" id="profileName" style="cursor:pointer" title="Editar nombre" onclick="editProfileName()">Usuario</div>
         <div class="profile-sub" id="profileSince">Miembro desde hoy</div>
         <div class="profile-stats">
           <div class="pstat"><div class="pstat-val" id="profileStreak">0</div><div class="pstat-lbl">Racha</div></div>
@@ -1316,7 +1316,7 @@ function formatMemberSince(value){
 }
 function normalizeUser(u){
   if(!u)return null;
-  const name=u.name||u.email?.split('@')[0]||'Usuario';
+  const name=u.name && u.name !== 'Usuario' ? u.name : (u.email?.split('@')[0] || 'Jhonny');
   return {
     id:u.id||null,
     name,
@@ -1337,10 +1337,27 @@ window.setVioraUser=setVioraUser;
 function updateGreeting(){
   const el=document.getElementById('greeting-name');
   if(!el)return;
-  el.textContent=state.user?.name?`Hola, ${state.user.name} 👋`:'Hola 👋';
+  const nameToDisplay = state.user?.name && state.user.name !== 'Usuario' ? state.user.name : 'Jhonny';
+  el.innerHTML=`Hola, ${escapeHTML(nameToDisplay)} <i class="fa fa-pen" style="font-size:14px;color:var(--txt3);margin-left:4px"></i>`;
   const composeAvatar=document.getElementById('composeAvatar');
-  if(composeAvatar)composeAvatar.textContent=initialsFromName(state.user?.name);
+  if(composeAvatar)composeAvatar.textContent=initialsFromName(nameToDisplay);
 }
+
+window.editProfileName = function() {
+  const newName = prompt('¿Cómo te llamas?', state.user?.name && state.user.name !== 'Usuario' ? state.user.name : 'Jhonny');
+  if (!newName || newName.trim() === '') return;
+  apiFetch(`${API}/user`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: newName.trim() })
+  }).then(async r => {
+    if(!r.ok) throw new Error();
+    if(state.user) state.user.name = newName.trim();
+    updateGreeting();
+    renderProfile();
+    showToast('Nombre actualizado ✅', 'success');
+  }).catch(() => showToast('Error al actualizar nombre', 'error'));
+};
 function getCompletedDailyMissions(){
   const dailyTasks=state.tasks.filter(t=>t.period==='diaria');
   const taskTotal=dailyTasks.length||state.tasks.length;
@@ -1367,7 +1384,7 @@ function renderHomeStreak(){
 function renderProfile(){
   const user=state.user;
   const doneTasks=state.tasks.filter(t=>t.done).length;
-  const name=user?.name||'Usuario';
+  const name=user?.name && user.name !== 'Usuario' ? user.name : 'Jhonny';
   const email=user?.email||'Sin sesión activa';
   const totalTasks=user?.totalTasks||doneTasks;
   const recovered=user?.totalRecovered||0;
@@ -1541,6 +1558,7 @@ function taskHTML(t,showPhoto=true){
     <div class="task-body">
       <div class="task-name${t.done?' done':''}">${t.name}</div>
       <div class="task-meta">${metaText}${t.requiresPhoto?' · requiere cámara':''}</div>
+      ${isMeasurable ? `<div style="height:4px;border-radius:2px;background:var(--bg3);margin-top:8px;overflow:hidden;"><div style="height:100%;width:${Math.min(100, Math.round(((t.current||0) / t.target)*100))}%;background:var(--amber);transition:width 0.3s ease;"></div></div>` : ''}
     </div>
     <div class="task-right">
       <span class="tag tag-cat-${escapeHTML(category)}">${escapeHTML(categoryLabel)}</span>
@@ -1710,6 +1728,16 @@ function renderFinances(){
   document.getElementById('finBalance').style.color=bal>=0?'var(--green)':'var(--red)';
   document.getElementById('finTotalIncome').textContent=fmtCOP(inc);
   document.getElementById('finTotalExpense').textContent=fmtCOP(exp);
+  
+  const pct = inc > 0 ? Math.max(0, Math.round((bal / inc) * 100)) : 0;
+  const ring = document.getElementById('finRing');
+  const pctEl = document.getElementById('finRingPct');
+  if(ring && pctEl) {
+    const validPct = Math.min(100, Math.max(0, pct));
+    const offset = 138.2 - (138.2 * validPct / 100);
+    ring.style.strokeDashoffset = offset;
+    pctEl.textContent = `${validPct}%`;
+  }
 }
 let finType='income';
 function setFinType(t){
