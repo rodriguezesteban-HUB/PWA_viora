@@ -10,6 +10,18 @@
     {
       "src": "index.html",
       "use": "@vercel/static"
+    },
+    {
+      "src": "script.js",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "styles.css",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "Logo_Viora.png",
+      "use": "@vercel/static"
     }
   ],
   "rewrites": [
