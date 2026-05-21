@@ -776,7 +776,9 @@ def get_current_user_id():
     return payload.get("sub") or DEFAULT_USER_ID
 
 def api_auth_required_in_this_environment():
-    return bool(os.environ.get("VERCEL")) or SUPABASE_ENABLED
+    if os.environ.get("VIORA_DISABLE_AUTH", "").strip().lower() in {"1", "true", "yes"}:
+        return False
+    return SUPABASE_ENABLED or SUPABASE_AUTH_ENABLED
 
 PUBLIC_API_ENDPOINTS = {
     "client_config",
@@ -1018,6 +1020,15 @@ def email_login():
 def auth_me():
     payload = get_auth_payload()
     if not payload:
+        if not api_auth_required_in_this_environment():
+            return ok(
+                {
+                    "id": DEFAULT_USER_ID,
+                    "email": None,
+                    "name": "Usuario",
+                },
+                authenticated=True,
+            )
         return ok({}, "no-auth", authenticated=False)
     return ok(
         {
