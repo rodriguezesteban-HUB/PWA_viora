@@ -2,10 +2,20 @@
   "env": {
     "JWT_SECRET": "viora-vercel-deploy-secret-2026"
   },
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index"
+      "destination": "/api/index.py"
     },
     {
       "source": "/(.*)",
