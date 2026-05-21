@@ -111,7 +111,9 @@ if not JWT_SECRET and not os.environ.get("VERCEL"):
 JWT_TTL_MINUTES = int(os.environ.get("JWT_TTL_MINUTES", "10080"))
 
 supabase = None
+supabase_auth = None
 SUPABASE_ENABLED = False
+SUPABASE_AUTH_ENABLED = False
 SUPABASE_ERROR = ""
 if create_client and SUPABASE_URL and SUPABASE_KEY:
     try:
@@ -124,6 +126,13 @@ elif not create_client:
     SUPABASE_ERROR = "No se pudo importar el paquete supabase"
 elif not SUPABASE_URL or not SUPABASE_KEY:
     SUPABASE_ERROR = "SUPABASE_URL o SUPABASE_KEY no configurados"
+
+if create_client and SUPABASE_URL and SUPABASE_ANON_KEY:
+    try:
+        supabase_auth = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+        SUPABASE_AUTH_ENABLED = True
+    except Exception:
+        SUPABASE_AUTH_ENABLED = False
 
 # ── DATA FILES (almacenamiento JSON persistente) ────────
 DATA_DIR = os.environ.get("VIORA_DATA_DIR")
@@ -711,10 +720,15 @@ def get_or_create_user_by_email(email, name, user_id=None):
         return None, name
 
 def verify_supabase_access_token(token):
-    if not token or not SUPABASE_ENABLED or not supabase:
+    if not token:
+        return None
+    client = supabase if SUPABASE_ENABLED else None
+    if not client and SUPABASE_AUTH_ENABLED:
+        client = supabase_auth
+    if not client:
         return None
     try:
-        res = supabase.auth.get_user(token)
+        res = client.auth.get_user(token)
         user = getattr(res, "user", None)
         if not user:
             return None
