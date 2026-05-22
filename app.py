@@ -278,7 +278,7 @@ def _sb_update(table, updates, required_keys, eq_filters):
                     current.pop(col)
                     continue
             raise
-    return _run({k: v for k, v in current.items() if k in required_keys}) if current else None
+    return None
 
 def week_dates(reference=None):
     base = reference or date.today()
@@ -1186,7 +1186,7 @@ def create_task():
             "target": float(body.get("target", 1) or 1),
             "current": 0,
         }
-        core = {"user_id", "name", "period", "done", "requires_photo", "verified"}
+        core = {"user_id", "name"}
         try:
             res = _sb_insert("tasks", payload, core)
             row = (res.data or [payload])[0]
@@ -1235,7 +1235,7 @@ def update_task(task_id):
         if not update_fields:
             return err("Sin cambios para actualizar")
         try:
-            res = _sb_update("tasks", update_fields, {"name", "period", "done", "requires_photo", "verified"}, {"id": task_id, "user_id": get_current_user_id()})
+            res = _sb_update("tasks", update_fields, set(), {"id": task_id, "user_id": get_current_user_id()})
             if not res or not res.data:
                 return err("Tarea no encontrada", 404)
             return ok(map_task_row(res.data[0]), "Tarea actualizada")
@@ -1304,7 +1304,7 @@ def complete_task(task_id):
             if bool(new_done) and task_requires_camera_verification(mapped_current) and not mapped_current.get("verified"):
                 return err("Las tareas de gym requieren una foto tomada con cámara y verificada por IA", 403)
 
-            upd = _sb_update("tasks", updates, {"done"}, {"id": task_id, "user_id": get_current_user_id()})
+            upd = _sb_update("tasks", updates, set(), {"id": task_id, "user_id": get_current_user_id()})
             task = map_task_row(upd.data[0]) if (upd and upd.data) else map_task_row({**current, "done": new_done})
 
             tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
@@ -1486,7 +1486,7 @@ def verify_photo(task_id):
     if result.get("approved"):
         if SUPABASE_ENABLED and supabase:
             try:
-                _sb_update("tasks", {"verified": True, "done": True}, {"verified", "done"}, {"id": task_id, "user_id": get_current_user_id()})
+                _sb_update("tasks", {"verified": True, "done": True}, set(), {"id": task_id, "user_id": get_current_user_id()})
                 tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
                 bet_won = _check_bet(tasks_res.data or [])
                 result["betWon"] = bet_won
