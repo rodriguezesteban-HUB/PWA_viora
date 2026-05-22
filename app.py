@@ -242,28 +242,43 @@ def _is_schema_cache_error(exc):
     s = str(exc)
     return "PGRST204" in s or "schema cache" in s.lower()
 
-def _sb_insert(table, payload, core_keys):
-    try:
-        return supabase.table(table).insert(payload).execute()
-    except Exception as e:
-        if _is_schema_cache_error(e):
-            minimal = {k: v for k, v in payload.items() if k in core_keys}
-            return supabase.table(table).insert(minimal).execute()
-        raise
+def _extract_bad_column(exc):
+    import re
+    m = re.search(r"Could not find the '(\w+)' column", str(exc))
+    return m.group(1) if m else None
 
-def _sb_update(table, updates, core_keys, eq_filters):
+def _sb_insert(table, payload, required_keys):
+    current = dict(payload)
+    for _ in range(12):
+        try:
+            return supabase.table(table).insert(current).execute()
+        except Exception as e:
+            if _is_schema_cache_error(e):
+                col = _extract_bad_column(e)
+                if col and col not in required_keys and col in current:
+                    current.pop(col)
+                    continue
+            raise
+    raise Exception("Insert fallido tras múltiples reintentos de esquema")
+
+def _sb_update(table, updates, required_keys, eq_filters):
     def _run(upd):
         q = supabase.table(table).update(upd)
         for col, val in eq_filters.items():
             q = q.eq(col, val)
         return q.execute()
-    try:
-        return _run(updates)
-    except Exception as e:
-        if _is_schema_cache_error(e):
-            minimal = {k: v for k, v in updates.items() if k in core_keys}
-            return _run(minimal) if minimal else None
-        raise
+    current = dict(updates)
+    for _ in range(12):
+        try:
+            return _run(current)
+        except Exception as e:
+            if _is_schema_cache_error(e):
+                col = _extract_bad_column(e)
+                if col and col not in required_keys and col in current:
+                    current.pop(col)
+                    continue
+            raise
+    return _run({k: v for k, v in current.items() if k in required_keys}) if current else None
 
 def week_dates(reference=None):
     base = reference or date.today()
