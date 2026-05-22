@@ -446,8 +446,27 @@ def call_places365_scene_classification(image_bytes):
         import torch
         from PIL import Image
         from torchvision import transforms
+    except Exception as exc:
+        return normalize_photo_verification_result({
+            "approved": False,
+            "confidence": 0,
+            "detectedItems": ["places365 dependencias faltantes"],
+            "reason": "Places365 no disponible: instale torch, torchvision y pillow.",
+            "mode": "places365-local",
+        })
 
+    try:
         model, categories, device = _load_places365()
+    except Exception as exc:
+        return normalize_photo_verification_result({
+            "approved": False,
+            "confidence": 0,
+            "detectedItems": ["places365 no instalado"],
+            "reason": f"Places365 no disponible: {str(exc)}",
+            "mode": "places365-local",
+        })
+
+    try:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         preprocess = transforms.Compose([
             transforms.Resize(256),
@@ -473,7 +492,6 @@ def call_places365_scene_classification(image_bytes):
             if any(scene in item["label"] for scene in PLACES365_GYM_SCENES)
         ]
         best_gym = max(gym_matches, key=lambda item: item["score"], default={"label": "", "score": 0})
-        best = predictions[0] if predictions else {"label": "", "score": 0}
 
         approved = best_gym["score"] >= PLACES365_GYM_THRESHOLD
         confidence = 0
@@ -500,7 +518,13 @@ def call_places365_scene_classification(image_bytes):
             "mode": "places365-local",
         })
     except Exception as exc:
-        return {"fallback": "huggingface", "reason": str(exc)}
+        return normalize_photo_verification_result({
+            "approved": False,
+            "confidence": 0,
+            "detectedItems": ["places365 error interno"],
+            "reason": f"Places365 produjo un error interno: {str(exc)}",
+            "mode": "places365-local",
+        })
 
 def call_hugging_face_zero_shot(image_b64):
     if not HF_TOKEN:
@@ -1407,7 +1431,7 @@ def verify_photo(task_id):
         if PHOTO_VERIFY_PROVIDER == "places365":
             result = call_places365_scene_classification(image_raw)
             if isinstance(result, dict) and result.get("fallback") == "huggingface":
-                result = call_hugging_face_zero_shot(image_b64)
+                return err("La verificación Places365 falló; no se usará Hugging Face.", 503)
         else:
             result = call_hugging_face_zero_shot(image_b64)
         if isinstance(result, dict) and result.get("fallback") == "image-classification":
