@@ -99,7 +99,17 @@ SUPABASE_ANON_KEY = (
     or os.environ.get("SUPABASE_PUBLISHABLE_KEY", "").strip()
 )
 DEFAULT_USER_ID = os.environ.get("VIORA_USER_ID", "11111111-1111-1111-1111-111111111111")
-TASK_CATEGORIES = {"gym", "social", "habitos", "salud_mental"}
+TASK_CATEGORIES = {
+    "gym",
+    "social",
+    "habitos",
+    "salud_mental",
+    "salud",
+    "procrastinacion",
+    "estudio",
+    "trabajo",
+    "hogar",
+}
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
@@ -148,6 +158,9 @@ COMMUNITY_FILE= os.path.join(DATA_DIR, "community.json")
 COMMUNITY_COMMENTS_FILE = os.path.join(DATA_DIR, "community_comments.json")
 USERS_FILE    = os.path.join(DATA_DIR, "users.json")
 AUTH_USERS_FILE = os.path.join(DATA_DIR, "auth_users.json")
+TASKS_TABLE = "habits"
+ROUTINES_TABLE = "habit_routines"
+ROUTINE_LOGS_TABLE = "habit_routine_logs"
 
 # ── HELPERS ───────────────────────────────────────────
 def read_json(path, default):
@@ -244,45 +257,35 @@ def week_dates(reference=None):
     return [monday + timedelta(days=i) for i in range(7)]
 
 def map_task_row(row):
-    category = normalize_task_category(
-        row.get("category") or row.get("cat") or ("gym" if row.get("requiresPhoto", row.get("requires_photo", False)) else "habitos")
-    )
+    return {
+        "id": row.get("id"),
+        "name": row.get("name"),
+        "description": row.get("description") or "",
+        "due_date": row.get("due_date"),
+        "done": bool(row.get("done", False)),
+        "createdAt": row.get("createdAt") or row.get("created_at"),
+    }
+
+def _normalize_habit_category(value):
+    raw = str(value or "habitos").strip().lower().replace("-","_").replace(" ","_")
+    for c in "áéíóúñ": raw = raw.replace(c, "aeioun"["áéíóúñ".index(c)])
+    return raw if raw in TASK_CATEGORIES else "habitos"
+
+def map_habit_row(row, week=None):
+    category = _normalize_habit_category(row.get("category"))
     target = float(row.get("target", 1) or 1)
     current = float(row.get("current", target if row.get("done") else 0) or 0)
     return {
         "id": row.get("id"),
         "name": row.get("name"),
         "category": category,
-        "description": row.get("description", ""),
-        "unit": row.get("unit", "veces"),
-        "target": target,
-        "frequency": row.get("frequency") or row.get("period", "diaria"),
-        "current": current,
-        "status": "completed" if bool(row.get("done", False)) else "active",
         "period": row.get("period", "diaria"),
+        "target": target,
+        "current": current,
+        "unit": row.get("unit", "veces"),
         "done": bool(row.get("done", False)),
         "requiresPhoto": category == "gym",
         "verified": bool(row.get("verified", False)),
-        "createdAt": row.get("createdAt") or row.get("created_at"),
-    }
-
-def normalize_task_category(value):
-    raw = str(value or "habitos").strip().lower()
-    raw = raw.replace("-", "_").replace(" ", "_").replace("á", "a")
-    if raw in {"mental", "saludmental", "salud_mental"}:
-        raw = "salud_mental"
-    return raw if raw in TASK_CATEGORIES else "habitos"
-
-def task_requires_camera_verification(task):
-    return normalize_task_category(task.get("category") or task.get("cat")) == "gym"
-
-def map_habit_row(row, week=None):
-    return {
-        "id": row.get("id"),
-        "name": row.get("name"),
-        "icon": row.get("icon", "🔥"),
-        "streak": int(row.get("streak", 0)),
-        "week": week if week is not None else [False] * 7,
         "createdAt": row.get("created_at"),
     }
 
@@ -1050,7 +1053,7 @@ def seed():
         return
     if not os.path.exists(TASKS_FILE):
         write_json(TASKS_FILE, [
-            {"id":"1","name":"Ejemplo: Leer 10 minutos","category":"habitos","period":"diaria","done":False,"requiresPhoto":False,"verified":False,"createdAt":now_str()},
+            {"id":"1","name":"Ejemplo: Leer 10 minutos","description":"","due_date":None,"done":False,"createdAt":now_str()},
         ])
     if not os.path.exists(HABITS_FILE):
         write_json(HABITS_FILE, [
@@ -1086,7 +1089,7 @@ def get_tasks():
     """Lista todas las tareas."""
     if SUPABASE_ENABLED and supabase:
         try:
-            res = supabase.table("tasks").select("*").eq("user_id", get_current_user_id()).order("created_at", desc=False).execute()
+            res = supabase.table(TASKS_TABLE).select("*").eq("user_id", get_current_user_id()).order("created_at", desc=False).execute()
             tasks = [map_task_row(row) for row in (res.data or [])]
             return ok(tasks)
         except Exception as e:
@@ -1098,30 +1101,23 @@ def get_tasks():
 @app.route("/api/tasks", methods=["POST"])
 def create_task():
     """Crea una nueva tarea.
-    Body: { name, category, period }
+    Body: { name, description?, due_date? }
     """
     body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if not name:
         return err("El campo 'name' es requerido")
-    category = normalize_task_category(body.get("category") or body.get("cat") or ("gym" if body.get("requiresPhoto") else "habitos"))
-    requires_photo = category == "gym"
 
     if SUPABASE_ENABLED and supabase:
         payload = {
             "user_id": get_current_user_id(),
             "name": name,
-            "category": category,
-            "period": body.get("period", "diaria"),
+            "description": body.get("description") or None,
+            "due_date": body.get("due_date") or None,
             "done": False,
-            "requires_photo": requires_photo,
-            "verified": False,
-            "unit": body.get("unit", "veces"),
-            "target": float(body.get("target", 1) or 1),
-            "current": 0
         }
         try:
-            res = supabase.table("tasks").insert(payload).execute()
+            res = supabase.table(TASKS_TABLE).insert(payload).execute()
             row = (res.data or [payload])[0]
             return ok(map_task_row(row), "Tarea creada")
         except Exception as e:
@@ -1130,16 +1126,9 @@ def create_task():
     task = {
         "id": str(uuid.uuid4()),
         "name": name,
-        "category": category,
-        "description": body.get("description", ""),
-        "unit": body.get("unit", "veces"),
-        "target": float(body.get("target", 1) or 1),
-        "frequency": body.get("frequency") or body.get("period", "diaria"),
-        "current": 0,
-        "period": body.get("period", "diaria"),   # diaria | semanal | unica
+        "description": body.get("description") or "",
+        "due_date": body.get("due_date") or None,
         "done": False,
-        "requiresPhoto": requires_photo,
-        "verified": False,
         "createdAt": now_str(),
     }
     tasks = read_json(TASKS_FILE, [])
@@ -1149,26 +1138,17 @@ def create_task():
 
 @app.route("/api/tasks/<task_id>", methods=["PUT"])
 def update_task(task_id):
-    """Actualiza nombre / período de una tarea."""
+    """Actualiza una tarea.
+    Body: { name?, description?, due_date?, done? }
+    """
     body = request.get_json(silent=True) or {}
 
     if SUPABASE_ENABLED and supabase:
-        update_fields = {}
-        if "name" in body:
-            update_fields["name"] = body["name"]
-        if "period" in body:
-            update_fields["period"] = body["period"]
-        if "category" in body or "cat" in body:
-            category = normalize_task_category(body.get("category") or body.get("cat"))
-            update_fields["category"] = category
-            update_fields["requires_photo"] = category == "gym"
-            update_fields["verified"] = False
-            if category != "gym":
-                update_fields["done"] = False
+        update_fields = {k: body[k] for k in ("name", "description", "due_date", "done") if k in body}
         if not update_fields:
             return err("Sin cambios para actualizar")
         try:
-            res = supabase.table("tasks").update(update_fields).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
+            res = supabase.table(TASKS_TABLE).update(update_fields).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
             if not res.data:
                 return err("Tarea no encontrada", 404)
             return ok(map_task_row(res.data[0]), "Tarea actualizada")
@@ -1179,17 +1159,9 @@ def update_task(task_id):
     task = next((t for t in tasks if t["id"] == task_id), None)
     if not task:
         return err("Tarea no encontrada", 404)
-
-    for field in ("name", "period"):
+    for field in ("name", "description", "due_date", "done"):
         if field in body:
             task[field] = body[field]
-    if "category" in body or "cat" in body:
-        category = normalize_task_category(body.get("category") or body.get("cat"))
-        task["category"] = category
-        task["requiresPhoto"] = category == "gym"
-        task["verified"] = False
-        if category != "gym":
-            task["done"] = False
     write_json(TASKS_FILE, tasks)
     return ok(task, "Tarea actualizada")
 
@@ -1198,7 +1170,7 @@ def delete_task(task_id):
     """Elimina una tarea."""
     if SUPABASE_ENABLED and supabase:
         try:
-            res = supabase.table("tasks").delete().eq("id", task_id).eq("user_id", get_current_user_id()).execute()
+            res = supabase.table(TASKS_TABLE).delete().eq("id", task_id).eq("user_id", get_current_user_id()).execute()
             if not res.data:
                 return err("Tarea no encontrada", 404)
             return ok(msg="Tarea eliminada")
@@ -1221,26 +1193,14 @@ def complete_task(task_id):
 
     if SUPABASE_ENABLED and supabase:
         try:
-            res = supabase.table("tasks").select("*").eq("id", task_id).eq("user_id", get_current_user_id()).limit(1).execute()
+            res = supabase.table(TASKS_TABLE).select("*").eq("id", task_id).eq("user_id", get_current_user_id()).limit(1).execute()
             if not res.data:
                 return err("Tarea no encontrada", 404)
             current = res.data[0]
-            if "current" in body:
-                raw_current = float(body.get("current"))
-                new_done = body.get("done", raw_current >= float(current.get("target", 1) or 1))
-                updates = {"done": bool(new_done), "current": raw_current}
-            else:
-                new_done = body.get("done", not current.get("done", False))
-                updates = {"done": bool(new_done)}
-
-            mapped_current = map_task_row(current)
-            if bool(new_done) and task_requires_camera_verification(mapped_current) and not mapped_current.get("verified"):
-                return err("Las tareas de gym requieren una foto tomada con cámara y verificada por IA", 403)
-            
-            upd = supabase.table("tasks").update(updates).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
+            new_done = body.get("done", not current.get("done", False))
+            upd = supabase.table(TASKS_TABLE).update({"done": bool(new_done)}).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
             task = map_task_row(upd.data[0]) if upd.data else map_task_row({**current, "done": new_done})
-
-            tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
+            tasks_res = supabase.table(TASKS_TABLE).select("done").eq("user_id", get_current_user_id()).execute()
             bet_check = _check_bet(tasks_res.data or [])
             return ok({"task": task, "betWon": bet_check}, "Estado actualizado")
         except Exception as e:
@@ -1250,20 +1210,8 @@ def complete_task(task_id):
     task = next((t for t in tasks if t["id"] == task_id), None)
     if not task:
         return err("Tarea no encontrada", 404)
-
-    if "current" in body:
-        task["current"] = float(body["current"])
-        new_done = body.get("done", task["current"] >= float(task.get("target", 1) or 1))
-    else:
-        new_done = body.get("done", not task.get("done", False))
-
-    mapped_task = map_task_row(task)
-    if bool(new_done) and task_requires_camera_verification(mapped_task) and not mapped_task.get("verified"):
-        return err("Las tareas de gym requieren una foto tomada con cámara y verificada por IA", 403)
-    task["done"] = new_done
+    task["done"] = body.get("done", not task.get("done", False))
     write_json(TASKS_FILE, tasks)
-
-    # Verificar si la apuesta se ganó
     bet_check = _check_bet(tasks)
     return ok({"task": task, "betWon": bet_check}, "Estado actualizado")
 
@@ -1275,20 +1223,16 @@ def add_task_progress(task_id):
 
     if SUPABASE_ENABLED and supabase:
         try:
-            res = supabase.table("tasks").select("*").eq("id", task_id).eq("user_id", get_current_user_id()).limit(1).execute()
+            res = supabase.table(TASKS_TABLE).select("*").eq("id", task_id).eq("user_id", get_current_user_id()).limit(1).execute()
             if not res.data:
                 return err("Tarea no encontrada", 404)
 
             current = res.data[0]
-            mapped_current = map_task_row(current)
-            if task_requires_camera_verification(mapped_current) and not mapped_current.get("verified"):
-                return err("Las tareas de gym requieren una foto tomada con cámara y verificada por IA", 403)
-            upd = supabase.table("tasks").update({"done": True}).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
+            upd = supabase.table(TASKS_TABLE).update({"done": True}).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
             task = map_task_row(upd.data[0]) if upd.data else map_task_row({**current, "done": True})
-
-            tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
+            tasks_res = supabase.table(TASKS_TABLE).select("done").eq("user_id", get_current_user_id()).execute()
             bet_check = _check_bet(tasks_res.data or [])
-            return ok({"task": task, "completed": True, "progress": 100, "betWon": bet_check}, "Progreso actualizado")
+            return ok({"task": task, "completed": True, "betWon": bet_check}, "Tarea completada")
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
 
@@ -1296,24 +1240,10 @@ def add_task_progress(task_id):
     task = next((t for t in tasks if t["id"] == task_id), None)
     if not task:
         return err("Tarea no encontrada", 404)
-    mapped_task = map_task_row(task)
-    if task_requires_camera_verification(mapped_task) and not mapped_task.get("verified"):
-        return err("Las tareas de gym requieren una foto tomada con cámara y verificada por IA", 403)
-
-    if "target" in task:
-        task["current"] = float(task.get("current", 0) or 0) + amount
-        completed = task["current"] >= float(task.get("target", 1) or 1)
-        task["done"] = completed
-        task["status"] = "completed" if completed else "active"
-        progress = min(round(task["current"] / float(task.get("target", 1) or 1) * 100, 2), 100)
-    else:
-        task["done"] = True
-        completed = True
-        progress = 100
-
+    task["done"] = True
     write_json(TASKS_FILE, tasks)
     bet_check = _check_bet(tasks)
-    return ok({"task": task, "completed": completed, "progress": progress, "betWon": bet_check}, "Progreso actualizado")
+    return ok({"task": map_task_row(task), "completed": True, "betWon": bet_check}, "Tarea completada")
 
 def _check_bet(tasks):
     """Devuelve True si se completaron >= 3 tareas y la apuesta estaba activa."""
@@ -1351,88 +1281,6 @@ def _check_bet(tasks):
 #  VERIFICACIÓN DE FOTO CON IA (Hugging Face CLIP)
 # ══════════════════════════════════════════════════════
 
-@app.route("/api/tasks/<task_id>/verify-photo", methods=["POST"])
-def verify_photo(task_id):
-    """Verifica una foto con Hugging Face CLIP para aprobar la tarea.
-    Body: { image: "<base64>", mediaType: "image/jpeg" }
-    """
-    if SUPABASE_ENABLED and supabase:
-        try:
-            res = supabase.table("tasks").select("*").eq("id", task_id).eq("user_id", get_current_user_id()).limit(1).execute()
-            if not res.data:
-                return err("Tarea no encontrada", 404)
-            task = map_task_row(res.data[0])
-            if not task_requires_camera_verification(task):
-                return err("Solo las tareas de gym requieren verificación por foto")
-        except Exception as e:
-            return err(f"Error Supabase: {str(e)}", 502)
-    else:
-        tasks = read_json(TASKS_FILE, [])
-        task = next((t for t in tasks if t["id"] == task_id), None)
-        if not task:
-            return err("Tarea no encontrada", 404)
-        mapped_task = map_task_row(task)
-        if not task_requires_camera_verification(mapped_task):
-            return err("Solo las tareas de gym requieren verificación por foto")
-
-    body = request.get_json(silent=True) or {}
-    image_b64  = body.get("image", "")
-    media_type = body.get("mediaType", "image/jpeg")
-    image_raw = b""
-
-    if not image_b64:
-        # Soporte multipart/form-data (envío de archivo directo)
-        file = request.files.get("photo")
-        if not file:
-            return err("Se requiere imagen (campo 'image' en base64 o multipart 'photo')")
-        raw = file.read()
-        image_raw = raw
-        image_b64  = base64.b64encode(raw).decode()
-        media_type = file.content_type or "image/jpeg"
-    else:
-        try:
-            image_raw = base64.b64decode(image_b64)
-        except Exception:
-            return err("Imagen base64 inválida")
-
-    if PHOTO_VERIFY_DEMO:
-        result = normalize_photo_verification_result({
-            "approved": True,
-            "confidence": 86,
-            "detectedItems": ["modo demo local", "equipo de gym simulado"],
-            "reason": "Modo demo local: flujo aprobado para probar la experiencia.",
-            "mode": "demo",
-        })
-    else:
-        if PHOTO_VERIFY_PROVIDER == "places365":
-            result = call_places365_scene_classification(image_raw)
-            if isinstance(result, dict) and result.get("fallback") == "huggingface":
-                result = call_hugging_face_zero_shot(image_b64)
-        else:
-            result = call_hugging_face_zero_shot(image_b64)
-        if isinstance(result, dict) and result.get("fallback") == "image-classification":
-            result = call_hugging_face_image_classification(image_raw, media_type)
-        if isinstance(result, tuple):
-            return result
-
-    # Si aprobada → marcar tarea como verificada y completada
-    if result.get("approved"):
-        if SUPABASE_ENABLED and supabase:
-            try:
-                supabase.table("tasks").update({"verified": True, "done": True}).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
-                tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
-                bet_won = _check_bet(tasks_res.data or [])
-                result["betWon"] = bet_won
-            except Exception as e:
-                return err(f"Error Supabase: {str(e)}", 502)
-        else:
-            task["verified"] = True
-            task["done"]     = True
-            write_json(TASKS_FILE, tasks)
-            bet_won = _check_bet(tasks)
-            result["betWon"] = bet_won
-
-    return ok(result, "Verificación completada")
 
 # ══════════════════════════════════════════════════════
 #  HÁBITOS
@@ -1442,64 +1290,55 @@ def verify_photo(task_id):
 def get_habits():
     if SUPABASE_ENABLED and supabase:
         try:
-            habits_res = supabase.table("habits").select("*").eq("user_id", get_current_user_id()).order("created_at", desc=False).execute()
-            habits = habits_res.data or []
-
-            habit_ids = [h.get("id") for h in habits if h.get("id")]
-            week = week_dates()
-            week_strs = [d.isoformat() for d in week]
-            logs_by_habit = {hid: {d: False for d in week_strs} for hid in habit_ids}
-
-            if habit_ids:
-                logs_res = supabase.table("habit_logs").select("habit_id, log_date, done").in_("habit_id", habit_ids).in_("log_date", week_strs).execute()
-                for row in (logs_res.data or []):
-                    hid = row.get("habit_id")
-                    d = row.get("log_date")
-                    if hid in logs_by_habit and d in logs_by_habit[hid]:
-                        logs_by_habit[hid][d] = bool(row.get("done", False))
-
-            mapped = []
-            for habit in habits:
-                hid = habit.get("id")
-                week_flags = [logs_by_habit.get(hid, {}).get(d.isoformat(), False) for d in week]
-                mapped.append(map_habit_row(habit, week_flags))
-
-            return ok(mapped)
+            res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", get_current_user_id()).order("created_at", desc=False).execute()
+            return ok([map_habit_row(r) for r in (res.data or [])])
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
-
-    return ok(read_json(HABITS_FILE, []))
+    return ok([map_habit_row(r) for r in read_json(HABITS_FILE, [])])
 
 @app.route("/api/habits", methods=["POST"])
 def create_habit():
-    """Crea un nuevo hábito.
-    Body: { name, icon }
+    """Crea un nuevo hábito medible.
+    Body: { name, category?, period?, target?, unit? }
     """
     body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if not name:
         return err("El campo 'name' es requerido")
+    category = _normalize_habit_category(body.get("category") or body.get("cat"))
+    requires_photo = category == "gym"
 
     if SUPABASE_ENABLED and supabase:
         payload = {
             "user_id": get_current_user_id(),
             "name": name,
-            "icon": body.get("icon", "🔥"),
-            "streak": 0,
+            "category": category,
+            "period": body.get("period", "diaria"),
+            "target": float(body.get("target", 1) or 1),
+            "current": 0,
+            "unit": body.get("unit", "veces"),
+            "done": False,
+            "requires_photo": requires_photo,
+            "verified": False,
         }
         try:
-            res = supabase.table("habits").insert(payload).execute()
+            res = supabase.table(ROUTINES_TABLE).insert(payload).execute()
             row = (res.data or [payload])[0]
-            return ok(map_habit_row(row, [False] * 7), "Hábito creado")
+            return ok(map_habit_row(row), "Hábito creado")
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
 
     habit = {
         "id": str(uuid.uuid4()),
         "name": name,
-        "icon": body.get("icon", "🔥"),
-        "streak": 0,
-        "week": [False] * 7,
+        "category": category,
+        "period": body.get("period", "diaria"),
+        "target": float(body.get("target", 1) or 1),
+        "current": 0,
+        "unit": body.get("unit", "veces"),
+        "done": False,
+        "requiresPhoto": requires_photo,
+        "verified": False,
         "createdAt": now_str(),
     }
     habits = read_json(HABITS_FILE, [])
@@ -1511,7 +1350,7 @@ def create_habit():
 def delete_habit(habit_id):
     if SUPABASE_ENABLED and supabase:
         try:
-            res = supabase.table("habits").delete().eq("id", habit_id).eq("user_id", get_current_user_id()).execute()
+            res = supabase.table(ROUTINES_TABLE).delete().eq("id", habit_id).eq("user_id", get_current_user_id()).execute()
             if not res.data:
                 return err("Hábito no encontrado", 404)
             return ok(msg="Hábito eliminado")
@@ -1524,6 +1363,115 @@ def delete_habit(habit_id):
         return err("Hábito no encontrado", 404)
     write_json(HABITS_FILE, new_habits)
     return ok(msg="Hábito eliminado")
+
+@app.route("/api/habits/<habit_id>/complete", methods=["POST"])
+def complete_habit(habit_id):
+    """Suma progreso o completa un hábito.
+    Body: { amount?: float, done?: bool }
+    """
+    body = request.get_json(silent=True) or {}
+
+    if SUPABASE_ENABLED and supabase:
+        try:
+            res = supabase.table(ROUTINES_TABLE).select("*").eq("id", habit_id).eq("user_id", get_current_user_id()).limit(1).execute()
+            if not res.data:
+                return err("Hábito no encontrado", 404)
+            current = res.data[0]
+            mapped = map_habit_row(current)
+            if mapped["requiresPhoto"] and not mapped["verified"]:
+                return err("Este hábito requiere verificación de foto antes de completar", 403)
+            amount = float(body.get("amount", 1) or 1)
+            new_current = min(float(current.get("current", 0) or 0) + amount, mapped["target"])
+            new_done = new_current >= mapped["target"]
+            upd = supabase.table(ROUTINES_TABLE).update({"current": new_current, "done": new_done}).eq("id", habit_id).eq("user_id", get_current_user_id()).execute()
+            habit = map_habit_row(upd.data[0]) if upd.data else map_habit_row({**current, "current": new_current, "done": new_done})
+            return ok({"habit": habit, "completed": new_done}, "Progreso guardado")
+        except Exception as e:
+            return err(f"Error Supabase: {str(e)}", 502)
+
+    habits = read_json(HABITS_FILE, [])
+    habit = next((h for h in habits if h["id"] == habit_id), None)
+    if not habit:
+        return err("Hábito no encontrado", 404)
+    mapped = map_habit_row(habit)
+    if mapped["requiresPhoto"] and not mapped.get("verified"):
+        return err("Este hábito requiere verificación de foto antes de completar", 403)
+    amount = float(body.get("amount", 1) or 1)
+    habit["current"] = min(float(habit.get("current", 0) or 0) + amount, mapped["target"])
+    habit["done"] = habit["current"] >= mapped["target"]
+    write_json(HABITS_FILE, habits)
+    return ok({"habit": map_habit_row(habit), "completed": habit["done"]}, "Progreso guardado")
+
+@app.route("/api/habits/<habit_id>/verify-photo", methods=["POST"])
+def verify_habit_photo(habit_id):
+    """Verifica foto de gym para un hábito.
+    Body: { image: '<base64>', mediaType: 'image/jpeg' }
+    """
+    if SUPABASE_ENABLED and supabase:
+        try:
+            res = supabase.table(ROUTINES_TABLE).select("*").eq("id", habit_id).eq("user_id", get_current_user_id()).limit(1).execute()
+            if not res.data:
+                return err("Hábito no encontrado", 404)
+            habit = map_habit_row(res.data[0])
+            if not habit["requiresPhoto"]:
+                return err("Solo los hábitos de gym requieren verificación por foto")
+        except Exception as e:
+            return err(f"Error Supabase: {str(e)}", 502)
+    else:
+        habits = read_json(HABITS_FILE, [])
+        h = next((x for x in habits if x["id"] == habit_id), None)
+        if not h:
+            return err("Hábito no encontrado", 404)
+        if not map_habit_row(h)["requiresPhoto"]:
+            return err("Solo los hábitos de gym requieren verificación por foto")
+
+    body = request.get_json(silent=True) or {}
+    image_b64 = body.get("image", "")
+    media_type = body.get("mediaType", "image/jpeg")
+    image_raw = b""
+
+    if not image_b64:
+        file = request.files.get("photo")
+        if not file:
+            return err("Se requiere imagen (campo 'image' en base64 o multipart 'photo')")
+        image_raw = file.read()
+        image_b64 = base64.b64encode(image_raw).decode()
+        media_type = file.content_type or "image/jpeg"
+    else:
+        try:
+            image_raw = base64.b64decode(image_b64)
+        except Exception:
+            return err("Imagen base64 inválida")
+
+    if PHOTO_VERIFY_DEMO:
+        result = normalize_photo_verification_result({"approved": True, "confidence": 86, "detectedItems": ["modo demo"], "reason": "Modo demo activado.", "mode": "demo"})
+    else:
+        if PHOTO_VERIFY_PROVIDER == "places365":
+            result = call_places365_scene_classification(image_raw)
+            if isinstance(result, dict) and result.get("fallback") == "huggingface":
+                result = call_hugging_face_zero_shot(image_b64)
+        else:
+            result = call_hugging_face_zero_shot(image_b64)
+        if isinstance(result, dict) and result.get("fallback") == "image-classification":
+            result = call_hugging_face_image_classification(image_raw, media_type)
+        if isinstance(result, tuple):
+            return result
+
+    if result.get("approved"):
+        if SUPABASE_ENABLED and supabase:
+            try:
+                supabase.table(ROUTINES_TABLE).update({"verified": True, "done": True}).eq("id", habit_id).eq("user_id", get_current_user_id()).execute()
+            except Exception as e:
+                return err(f"Error Supabase: {str(e)}", 502)
+        else:
+            habits = read_json(HABITS_FILE, [])
+            h = next((x for x in habits if x["id"] == habit_id), None)
+            if h:
+                h["verified"] = True
+                h["done"] = True
+                write_json(HABITS_FILE, habits)
+
+    return ok(result, "Verificación completada")
 
 @app.route("/api/habits/<habit_id>/log", methods=["POST"])
 def log_habit(habit_id):
@@ -1539,25 +1487,25 @@ def log_habit(habit_id):
 
     if SUPABASE_ENABLED and supabase:
         try:
-            habit_res = supabase.table("habits").select("*").eq("id", habit_id).eq("user_id", get_current_user_id()).limit(1).execute()
+            habit_res = supabase.table(ROUTINES_TABLE).select("*").eq("id", habit_id).eq("user_id", get_current_user_id()).limit(1).execute()
             if not habit_res.data:
                 return err("Hábito no encontrado", 404)
 
             week = week_dates()
             target_date = week[int(day)].isoformat()
 
-            supabase.table("habit_logs").upsert({
+            supabase.table(ROUTINE_LOGS_TABLE).upsert({
                 "habit_id": habit_id,
                 "log_date": target_date,
                 "done": done,
             }, on_conflict="habit_id,log_date").execute()
 
-            logs_res = supabase.table("habit_logs").select("log_date, done").eq("habit_id", habit_id).in_("log_date", [d.isoformat() for d in week]).execute()
+            logs_res = supabase.table(ROUTINE_LOGS_TABLE).select("log_date, done").eq("habit_id", habit_id).in_("log_date", [d.isoformat() for d in week]).execute()
             done_map = {row.get("log_date"): bool(row.get("done", False)) for row in (logs_res.data or [])}
             week_flags = [done_map.get(d.isoformat(), False) for d in week]
             streak = sum(1 for flag in week_flags if flag)
 
-            supabase.table("habits").update({"streak": streak}).eq("id", habit_id).execute()
+            supabase.table(ROUTINES_TABLE).update({"streak": streak}).eq("id", habit_id).execute()
 
             habit = map_habit_row(habit_res.data[0], week_flags)
             habit["streak"] = streak
@@ -1773,7 +1721,7 @@ def bet_status():
         try:
             bet_res = supabase.table("bets").select("*").eq("user_id", get_current_user_id()).order("created_at", desc=True).limit(1).execute()
             bet_row = bet_res.data[0] if bet_res.data else None
-            tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
+            tasks_res = supabase.table(TASKS_TABLE).select("done").eq("user_id", get_current_user_id()).execute()
             done = sum(1 for t in (tasks_res.data or []) if t.get("done"))
 
             return ok({
@@ -2085,9 +2033,9 @@ def dashboard():
     """Resumen completo del día: tareas, hábitos, finanzas, apuesta."""
     if SUPABASE_ENABLED and supabase:
         try:
-            tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
+            tasks_res = supabase.table(TASKS_TABLE).select("done").eq("user_id", get_current_user_id()).execute()
             tasks = tasks_res.data or []
-            habits_res = supabase.table("habits").select("id").eq("user_id", get_current_user_id()).execute()
+            habits_res = supabase.table(ROUTINES_TABLE).select("id").eq("user_id", get_current_user_id()).execute()
             habits = habits_res.data or []
             finances_res = supabase.table("finances").select("type, amount").eq("user_id", get_current_user_id()).execute()
             finances = finances_res.data or []
@@ -2101,12 +2049,11 @@ def dashboard():
             total_habits = len(habits)
 
             week = week_dates()
-            week_strs = [d.isoformat() for d in week]
             habit_ids = [h.get("id") for h in habits if h.get("id")]
             done_habits = 0
             if habit_ids:
-                logs_res = supabase.table("habit_logs").select("habit_id, log_date, done").in_("habit_id", habit_ids).in_("log_date", week_strs).execute()
                 today_str_val = week[-1].isoformat()
+                logs_res = supabase.table(ROUTINE_LOGS_TABLE).select("log_date, done").in_("habit_id", habit_ids).eq("log_date", today_str_val).execute()
                 done_habits = sum(1 for row in (logs_res.data or []) if row.get("log_date") == today_str_val and row.get("done"))
 
             income = sum(float(f.get("amount", 0)) for f in finances if f.get("type") == "income")

@@ -334,6 +334,8 @@ img{display:block;max-width:100%}
 .task-name.done{color:var(--txt3);text-decoration:line-through}
 .task-meta{font-size:11px;color:var(--txt3);margin-top:1px}
 .task-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.task-due{font-size:11px;font-weight:600;color:var(--txt3);white-space:nowrap}
+.task-due.overdue{color:var(--red)}
 .tag{font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px}
 .tag-daily{background:var(--blue-dim);color:var(--blue-soft)}
 .tag-weekly{background:var(--amber-dim);color:var(--amber-soft)}
@@ -342,6 +344,11 @@ img{display:block;max-width:100%}
 .tag-cat-social{background:var(--blue-dim);color:var(--blue-soft)}
 .tag-cat-habitos{background:var(--green-dim);color:var(--green)}
 .tag-cat-salud_mental{background:var(--amber-dim);color:var(--amber)}
+.tag-cat-salud{background:var(--green-dim);color:var(--green)}
+.tag-cat-procrastinacion{background:var(--red-dim);color:var(--red)}
+.tag-cat-estudio{background:var(--blue-dim);color:var(--blue-soft)}
+.tag-cat-trabajo{background:var(--purple-dim);color:var(--purple)}
+.tag-cat-hogar{background:var(--amber-dim);color:var(--amber)}
 .task-photo-btn{
   min-width:28px;height:28px;border-radius:7px;padding:0 9px;
   background:var(--purple-dim);color:var(--purple);
@@ -762,7 +769,7 @@ img{display:block;max-width:100%}
             <span class="kpi-badge">hoy</span>
           </div>
           <div class="kpi-val" id="kpiTasks">2/4</div>
-          <div class="kpi-lbl">Tareas</div>
+          <div class="kpi-lbl">Hábitos</div>
           <div class="kpi-bar"><div class="kpi-fill" id="kpiTasksBar" style="width:0;background:var(--blue)"></div></div>
         </div>
         <div class="kpi green">
@@ -771,7 +778,7 @@ img{display:block;max-width:100%}
             <span class="kpi-badge">semana</span>
           </div>
           <div class="kpi-val" id="kpiHabits">3/4</div>
-          <div class="kpi-lbl">Hábitos</div>
+          <div class="kpi-lbl">Tareas</div>
           <div class="kpi-bar"><div class="kpi-fill" id="kpiHabitsBar" style="width:0;background:var(--green)"></div></div>
         </div>
         <div class="kpi amber">
@@ -801,19 +808,19 @@ img{display:block;max-width:100%}
           <span class="bet-status active" id="betStatusBadge">Activa</span>
         </div>
         <div class="bet-amount" id="betAmountDisplay">$10.000</div>
-        <div class="bet-sub" id="betSubText">Completa 3 tareas hoy y te devolvemos tu plata</div>
+        <div class="bet-sub" id="betSubText">Completa 3 hábitos hoy y te devolvemos tu plata</div>
         <div class="bet-progress" id="betProgressWrap">
           <div class="bet-progress-bar">
             <div class="bet-progress-fill" id="betProgressFill" style="width:50%"></div>
           </div>
           <div class="bet-progress-labels">
-            <span class="bet-prog-txt">2 de 3 tareas</span>
+            <span class="bet-prog-txt">2 de 3 hábitos</span>
             <span class="bet-prog-txt hi">1 falta</span>
           </div>
         </div>
         <div class="bet-btns">
           <button class="btn-bet-start" onclick="openBetModal()">Apostar ahora</button>
-          <button class="btn-bet-info" onclick="showToast('Completa 3 tareas diarias para recuperar tu apuesta 💸','amber')">
+          <button class="btn-bet-info" onclick="showToast('Completa 3 hábitos diarios para recuperar tu apuesta 💸','amber')">
             <i class="fa fa-info"></i>
           </button>
         </div>
@@ -841,7 +848,7 @@ img{display:block;max-width:100%}
     <!-- ══════════════ PAGE: HABITS ══════════════ -->
     <div class="page" id="page-habits">
       <div style="padding:12px 18px 16px;display:flex;align-items:center;justify-content:space-between">
-        <div style="font-family:var(--font-head);font-size:20px;font-weight:800;color:var(--txt1)">Hábitos</div>
+        <div style="font-family:var(--font-head);font-size:20px;font-weight:800;color:var(--txt1)">Mis Hábitos</div>
         <button style="padding:8px 14px;border-radius:var(--r-sm);background:var(--amber);color:#0A0C10;font-family:var(--font-head);font-size:12px;font-weight:700" onclick="openAddHabitModal()">+ Nuevo</button>
       </div>
       <div class="habit-list" id="habitList"></div>
@@ -900,7 +907,7 @@ img{display:block;max-width:100%}
         <button class="ctab active" data-cat="all">Todo</button>
         <button class="ctab" data-cat="gym">💪 Gym</button>
         <button class="ctab" data-cat="finanzas">💰 Finanzas</button>
-        <button class="ctab" data-cat="habitos">🔥 Hábitos</button>
+        <button class="ctab" data-cat="habitos">🔥 Tareas</button>
         <button class="ctab" data-cat="general">💬 General</button>
       </div>
       <div class="post-compose">
@@ -923,7 +930,7 @@ img{display:block;max-width:100%}
         <div class="profile-sub" id="profileSince">Miembro desde hoy</div>
         <div class="profile-stats">
           <div class="pstat"><div class="pstat-val" id="profileStreak">0</div><div class="pstat-lbl">Racha</div></div>
-          <div class="pstat"><div class="pstat-val" id="profileTasks">0</div><div class="pstat-lbl">Tareas</div></div>
+          <div class="pstat"><div class="pstat-val" id="profileTasks">0</div><div class="pstat-lbl">Hábitos</div></div>
           <div class="pstat"><div class="pstat-val" id="profileRecovered">$0k</div><div class="pstat-lbl">Recuperado</div></div>
         </div>
       </div>
@@ -1021,11 +1028,11 @@ img{display:block;max-width:100%}
       </div>
       <div class="bet-rule">
         <span class="bet-rule-icon">✅</span>
-        <div class="bet-rule-text"><strong>Completa 3 tareas diarias</strong> y recibes de vuelta el 100% de tu dinero al método de pago original.</div>
+        <div class="bet-rule-text"><strong>Completa 3 hábitos diarios</strong> y recibes de vuelta el 100% de tu dinero al método de pago original.</div>
       </div>
       <div class="bet-rule">
         <span class="bet-rule-icon">⚠️</span>
-        <div class="bet-rule-text">Si no completas las 3 tareas, <strong>pierdes la apuesta</strong>. Sin excepciones — así funciona la disciplina.</div>
+        <div class="bet-rule-text">Si no completas los 3 hábitos, <strong>pierdes la apuesta</strong>. Sin excepciones — así funciona la disciplina.</div>
       </div>
       <div class="bet-rule">
         <span class="bet-rule-icon">🔒</span>
@@ -1093,20 +1100,10 @@ img{display:block;max-width:100%}
     <div class="modal-title">✅ Nueva Tarea</div>
     <div class="modal-body">
       <div style="display:flex;flex-direction:column;gap:10px">
-        <input type="text" id="newTaskName" placeholder="Nombre de la tarea" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
-        <select id="newTaskCategory" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
-          <option value="gym">Gym</option>
-          <option value="social">Social</option>
-          <option value="habitos">Hábitos</option>
-          <option value="salud_mental">Salud mental</option>
-        </select>
-        <select id="newTaskPeriod" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
-          <option value="diaria">Diaria</option>
-          <option value="semanal">Semanal</option>
-          <option value="unica">Única vez</option>
-        </select>
-        <input type="number" id="newTaskTarget" placeholder="Cantidad meta (ej: 8)" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
-        <input type="text" id="newTaskUnit" placeholder="Medida (ej: vasos de agua)" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
+        <input type="text" id="newTaskName" placeholder="Título" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
+        <textarea id="newTaskDescription" placeholder="Descripción (opcional)" rows="3" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%;resize:none"></textarea>
+        <label style="font-size:12px;color:var(--txt2);margin-bottom:-4px">Fecha límite (opcional)</label>
+        <input type="date" id="newTaskDueDate" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%;color-scheme:dark">
         <button class="btn-primary" onclick="addTask()">Crear tarea</button>
       </div>
     </div>
@@ -1122,15 +1119,25 @@ img{display:block;max-width:100%}
     <div class="modal-body">
       <div style="display:flex;flex-direction:column;gap:10px">
         <input type="text" id="newHabitName" placeholder="Nombre del hábito" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
-        <select id="newHabitIcon" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
-          <option value="🧠">🧠 Mente</option>
-          <option value="💧">💧 Agua</option>
-          <option value="📵">📵 Sin pantallas</option>
-          <option value="📚">📚 Lectura</option>
-          <option value="🏃">🏃 Ejercicio</option>
-          <option value="😴">😴 Sueño</option>
-          <option value="🥗">🥗 Nutrición</option>
+        <select id="newHabitCategory" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
+          <option value="gym">🏋️ Gym</option>
+          <option value="salud">❤️ Salud</option>
+          <option value="salud_mental">🧠 Salud mental</option>
+          <option value="estudio">📚 Estudio</option>
+          <option value="trabajo">💼 Trabajo</option>
+          <option value="social">👥 Social</option>
+          <option value="hogar">🏠 Hogar</option>
+          <option value="habitos" selected>✅ General</option>
         </select>
+        <select id="newHabitPeriod" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
+          <option value="diaria">Diaria</option>
+          <option value="semanal">Semanal</option>
+          <option value="unica">Única vez</option>
+        </select>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <input type="number" id="newHabitTarget" placeholder="Meta (ej: 8)" min="1" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
+          <input type="text" id="newHabitUnit" placeholder="Unidad (ej: vasos)" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
+        </div>
         <button class="btn-primary" onclick="addHabit()">Crear hábito</button>
       </div>
     </div>
@@ -1404,28 +1411,31 @@ function renderProfile(){
   if(emailEl)emailEl.textContent=email;
 }
 function normalizeTask(t){
-  const category=t.category||t.cat||(t.requiresPhoto||t.requires_photo?'gym':'habitos');
   return {
     id:String(t.id),
     name:t.name||'Sin nombre',
-    category,
-    period:t.period||t.frequency||'diaria',
-    done:Boolean(t.done||t.status==='completed'||(Number(t.current||0)>=Number(t.target||1))),
-    requiresPhoto:category==='gym',
-    verified:Boolean(t.verified),
+    description:t.description||'',
+    due_date:t.due_date||null,
+    done:Boolean(t.done||t.status==='completed'),
     createdAt:t.createdAt||t.created_at||null,
-    target:Number(t.target||1),
-    current:Number(t.current||0),
-    unit:t.unit||'veces'
   };
 }
+const habitCategoryLabels={gym:'Gym',salud:'Salud',salud_mental:'Salud mental',estudio:'Estudio',trabajo:'Trabajo',social:'Social',hogar:'Hogar',habitos:'General'};
 function normalizeHabit(h){
+  const category=h.category||'habitos';
+  const target=Number(h.target||1);
+  const current=Number(h.current||0);
   return {
     id:String(h.id),
     name:h.name||'Sin nombre',
-    icon:h.icon||'🔥',
-    streak:Number(h.streak||0),
-    week:Array.isArray(h.week)?h.week.map(Boolean):[false,false,false,false,false,false,false],
+    category,
+    period:h.period||'diaria',
+    target,
+    current,
+    unit:h.unit||'veces',
+    done:Boolean(h.done||(current>=target&&target>0)),
+    requiresPhoto:category==='gym',
+    verified:Boolean(h.verified),
   };
 }
 function normalizeFinance(f){
@@ -1533,49 +1543,37 @@ async function loadVioraData(){
 window.loadVioraData=loadVioraData;
 
 // ── TASKS ─────────────────────────────────────────────
-const taskCategoryLabels={gym:'Gym',social:'Social',habitos:'Hábitos',salud_mental:'Salud mental'};
-function taskHTML(t,showPhoto=true){
-  const tagClass=t.period==='diaria'?'tag-daily':t.period==='semanal'?'tag-weekly':'tag-once';
-  const tagLabel=t.period==='diaria'?'diaria':t.period==='semanal'?'semanal':'única';
-  const category=t.category||'habitos';
-  const categoryLabel=taskCategoryLabels[category]||'Hábitos';
+function taskHTML(t){
   const taskId=escapeHTML(String(t.id));
-  const verBadge=t.requiresPhoto?(
-    t.verified?'<span class="task-verify-badge"><i class="fa fa-check"></i> verificado</span>':
-    '<span class="task-verify-pending"><i class="fa fa-camera"></i> foto</span>'
-  ):'';
-  const needsPhoto=t.requiresPhoto&&!t.verified;
-  const photoBtn=showPhoto&&needsPhoto?
-    `<button class="task-photo-btn" type="button" data-task-id="${taskId}" title="Verificar con foto"><i class="fa fa-camera"></i><span>Verificar</span></button>`:'';
-  
-  const isMeasurable = t.target > 1;
-  const metaText = isMeasurable 
-      ? `${t.current||0} / ${t.target} ${escapeHTML(t.unit||'veces')} · ${t.done?'Completado':'Pendiente'}`
-      : `${t.done?'Completado':'Pendiente'}`;
-
+  const dueDateStr=t.due_date
+    ? `<span class="task-due${isOverdue(t)?' overdue':''}">${formatDueDate(t.due_date)}</span>`
+    : '';
   return `<div class="task-item${t.done?' done':''}" id="task-${taskId}" data-task-id="${taskId}" role="button" tabindex="0">
-    <div class="task-check${t.done?' done':''}">${t.done?'<i class="fa fa-check"></i>':(isMeasurable?'<i class="fa fa-plus"></i>':'')}</div>
+    <div class="task-check${t.done?' done':''}">${t.done?'<i class="fa fa-check"></i>':''}</div>
     <div class="task-body">
-      <div class="task-name${t.done?' done':''}">${t.name}</div>
-      <div class="task-meta">${metaText}${t.requiresPhoto?' · requiere cámara':''}</div>
-      ${isMeasurable ? `<div style="height:4px;border-radius:2px;background:var(--bg3);margin-top:8px;overflow:hidden;"><div style="height:100%;width:${Math.min(100, Math.round(((t.current||0) / t.target)*100))}%;background:var(--amber);transition:width 0.3s ease;"></div></div>` : ''}
+      <div class="task-name${t.done?' done':''}">${escapeHTML(t.name)}</div>
+      ${t.description?`<div class="task-meta">${escapeHTML(t.description)}</div>`:''}
     </div>
-    <div class="task-right">
-      <span class="tag tag-cat-${escapeHTML(category)}">${escapeHTML(categoryLabel)}</span>
-      <span class="tag ${tagClass}">${tagLabel}</span>
-      ${verBadge}${photoBtn}
-    </div>
+    ${dueDateStr?`<div class="task-right">${dueDateStr}</div>`:''}
   </div>`;
+}
+function formatDueDate(dateStr){
+  const d=new Date(dateStr+'T00:00:00');
+  const today=new Date(); today.setHours(0,0,0,0);
+  const diff=Math.round((d-today)/86400000);
+  if(diff===0)return 'Hoy';
+  if(diff===1)return 'Mañana';
+  if(diff===-1)return 'Ayer';
+  if(diff<0)return `Hace ${Math.abs(diff)}d`;
+  if(diff<=7)return `En ${diff}d`;
+  return d.toLocaleDateString('es',{day:'numeric',month:'short'});
+}
+function isOverdue(t){
+  if(!t.due_date||t.done)return false;
+  return new Date(t.due_date+'T00:00:00')<new Date(new Date().toDateString());
 }
 
 document.addEventListener('click',event=>{
-  const photoBtn=event.target.closest('.task-photo-btn');
-  if(photoBtn){
-    event.preventDefault();
-    event.stopPropagation();
-    openPhotoModal(String(photoBtn.dataset.taskId));
-    return;
-  }
   const taskItem=event.target.closest('.task-item');
   if(!taskItem)return;
   toggleTask(String(taskItem.dataset.taskId));
@@ -1598,27 +1596,10 @@ function renderFullTasks(){
 function toggleTask(id){
   const t=state.tasks.find(x=>x.id===id);
   if(!t)return;
-  if(t.requiresPhoto&&!t.verified){openPhotoModal(id);return}
-  
-  if (t.target > 1) {
-    if (t.done) {
-      t.done = false;
-      t.current = 0;
-    } else {
-      t.current = (Number(t.current) || 0) + 1;
-      if (t.current >= t.target) t.done = true;
-    }
-  } else {
-    t.done = !t.done;
-    t.current = t.done ? 1 : 0;
-  }
-  
+  t.done=!t.done;
   renderHomeTaskPreview();renderFullTasks();updateKPIs();
-  
   if(t.done)showToast('Tarea completada ✅','success');
-  else if(t.target > 1 && !t.done && t.current > 0) showToast(`${t.current} / ${t.target} ${t.unit} registrados`,'info');
-
-  apiFetch(`${API}/tasks/${id}/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:t.done, current:t.current})})
+  apiFetch(`${API}/tasks/${id}/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:t.done})})
     .then(async r=>{if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Error')})
     .catch(()=>{showToast('No pude guardar el cambio','error');loadVioraData()});
 }
@@ -1627,25 +1608,26 @@ window.toggleTask=toggleTask;
 function openAddTaskModal(){document.getElementById('addTaskModal').classList.add('open')}
 async function addTask(){
   const name=document.getElementById('newTaskName').value.trim();
-  if(!name){showToast('Escribe el nombre de la tarea','error');return}
-  const category=document.getElementById('newTaskCategory').value;
-  const targetVal = document.getElementById('newTaskTarget').value;
-  const target = targetVal && !isNaN(targetVal) ? Number(targetVal) : 1;
-  const unit = document.getElementById('newTaskUnit').value.trim() || 'veces';
-  
-  const t={name,category,period:document.getElementById('newTaskPeriod').value,target,unit};
+  if(!name){showToast('Escribe el título de la tarea','error');return}
+  const description=document.getElementById('newTaskDescription').value.trim()||null;
+  const due_date=document.getElementById('newTaskDueDate').value||null;
+  const t={name,description,due_date};
   try{
     const response=await apiFetch(`${API}/tasks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)});
-    const payload=await response.json().catch(()=>({}));
-    if(!response.ok||!payload.success)throw new Error(payload.error||'No se pudo crear la tarea');
+    const raw=await response.text();
+    let payload={};
+    try{payload=JSON.parse(raw||'{}')}catch(_error){}
+    if(!response.ok||!payload.success){
+      const detail=payload.error||raw||`No se pudo crear la tarea (HTTP ${response.status})`;
+      throw new Error(detail);
+    }
     state.tasks.push(normalizeTask(apiData(payload,t)));
     closeModal('addTaskModal');
     renderFullTasks();renderHomeTaskPreview();updateKPIs();
-    showToast('Tarea creada 🎉','success');
+    showToast('Tarea creada','success');
     document.getElementById('newTaskName').value='';
-    document.getElementById('newTaskCategory').value='gym';
-    document.getElementById('newTaskTarget').value='';
-    document.getElementById('newTaskUnit').value='';
+    document.getElementById('newTaskDescription').value='';
+    document.getElementById('newTaskDueDate').value='';
   }catch(err){
     console.error('Error creando tarea:',err);
     showToast(err.message||'No pude crear la tarea','error');
@@ -1657,51 +1639,75 @@ const DAYS=['L','M','M','J','V','S','D'];
 function renderHabits(){
   const el=document.getElementById('habitList');
   if(!el)return;
-  el.innerHTML=state.habits.length ? state.habits.map(h=>`
-    <div class="habit-item">
-      <div class="habit-top">
-        <span class="habit-name">${h.icon} ${h.name}</span>
-        <span class="habit-streak-badge">🔥 ${h.streak} días</span>
+  el.innerHTML=state.habits.length ? state.habits.map(h=>{
+    const hid=escapeHTML(String(h.id));
+    const catLabel=escapeHTML(habitCategoryLabels[h.category]||'General');
+    const progress=h.target>0?Math.min(100,Math.round(h.current/h.target*100)):0;
+    const needsPhoto=h.requiresPhoto&&!h.verified;
+    const photoBtn=needsPhoto?`<button class="task-photo-btn" type="button" data-habit-id="${hid}" title="Verificar con foto" onclick="openHabitPhotoModal('${hid}')"><i class="fa fa-camera"></i><span>Verificar</span></button>`:'';
+    const verBadge=h.requiresPhoto?(h.verified?'<span class="task-verify-badge"><i class="fa fa-check"></i> verificado</span>':''):'';
+    return `<div class="task-item${h.done?' done':''}" id="habit-${hid}">
+      <div class="task-check${h.done?' done':''}" onclick="addHabitProgress('${hid}')">${h.done?'<i class="fa fa-check"></i>':'<i class="fa fa-plus"></i>'}</div>
+      <div class="task-body">
+        <div class="task-name${h.done?' done':''}">${escapeHTML(h.name)}</div>
+        <div class="task-meta">${h.current}/${h.target} ${escapeHTML(h.unit)} · ${h.period}</div>
+        <div style="height:4px;border-radius:2px;background:var(--bg3);margin-top:6px;overflow:hidden"><div style="height:100%;width:${progress}%;background:var(--amber);transition:width 0.3s ease"></div></div>
       </div>
-      <div class="habit-dots">
-        ${h.week.map((d,i)=>`<div class="hdot ${i===6?'today':d?'hit':'miss'}" onclick="toggleHabitDay(${JSON.stringify(String(h.id))},${i})"></div>`).join('')}
+      <div class="task-right">
+        <span class="tag tag-cat-${escapeHTML(h.category)}">${catLabel}</span>
+        ${verBadge}${photoBtn}
       </div>
-      <div class="day-labels">${DAYS.map(d=>`<div class="day-lbl">${d}</div>`).join('')}</div>
-    </div>`).join('') : '<div class="task-meta" style="padding:18px">Crea tu primer hábito.</div>';
+    </div>`;
+  }).join('') : '<div class="task-meta" style="padding:18px">Crea tu primer hábito.</div>';
 }
-async function toggleHabitDay(id,day){
+async function addHabitProgress(id){
   const h=state.habits.find(x=>x.id===id);
-  if(!h||day===6)return;
-  const previousWeek=[...h.week];
-  const previousStreak=h.streak;
-  h.week[day]=!h.week[day];
-  h.streak=h.week.filter(Boolean).length*2;
-  renderHabits();
+  if(!h||h.done)return;
+  if(h.requiresPhoto&&!h.verified){openHabitPhotoModal(id);return;}
+  const prev={current:h.current,done:h.done};
+  h.current=Math.min(h.current+1,h.target);
+  h.done=h.current>=h.target;
+  renderHabits();updateKPIs();
+  if(h.done)showToast('¡Hábito completado! 🔥','success');
   try{
-    const response=await apiFetch(`${API}/habits/${id}/log`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day,done:h.week[day]})});
-    const payload=await response.json().catch(()=>({}));
-    if(!response.ok||!payload.success)throw new Error(payload.error||'No se pudo guardar el hábito');
-    const saved=normalizeHabit(apiData(payload,h));
-    Object.assign(h,saved);
+    const r=await apiFetch(`${API}/habits/${id}/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:1})});
+    const p=await r.json().catch(()=>({}));
+    if(!r.ok||!p.success)throw new Error(p.error||'Error');
+    Object.assign(h,normalizeHabit(p.data?.habit||h));
     renderHabits();
-  }catch(err){
-    h.week=previousWeek;h.streak=previousStreak;
-    renderHabits();
-    showToast(err.message||'No pude guardar el hábito','error');
+  }catch(e){
+    Object.assign(h,prev);renderHabits();
+    showToast(e.message||'No pude guardar el progreso','error');
   }
+}
+function openHabitPhotoModal(id){
+  state.currentPhotoTask=id;
+  state.photoModalMode='habit';
+  document.getElementById('photoModal')?.classList.add('open');
 }
 function openAddHabitModal(){document.getElementById('addHabitModal').classList.add('open')}
 async function addHabit(){
   const name=document.getElementById('newHabitName').value.trim();
   if(!name){showToast('Escribe el nombre del hábito','error');return}
-  const h={name,icon:document.getElementById('newHabitIcon').value};
+  const targetVal=document.getElementById('newHabitTarget').value;
+  const h={
+    name,
+    category:document.getElementById('newHabitCategory').value,
+    period:document.getElementById('newHabitPeriod').value,
+    target:targetVal&&!isNaN(targetVal)?Number(targetVal):1,
+    unit:document.getElementById('newHabitUnit').value.trim()||'veces',
+  };
   try{
     const response=await apiFetch(`${API}/habits`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(h)});
-    const payload=await response.json().catch(()=>({}));
-    if(!response.ok||!payload.success)throw new Error(payload.error||'No se pudo crear el hábito');
+    const raw=await response.text();
+    let payload={};
+    try{payload=JSON.parse(raw||'{}')}catch(_e){}
+    if(!response.ok||!payload.success)throw new Error(payload.error||raw||`Error ${response.status}`);
     state.habits.push(normalizeHabit(apiData(payload,h)));
     closeModal('addHabitModal');renderHabits();updateKPIs();showToast('Hábito creado 🔥','success');
     document.getElementById('newHabitName').value='';
+    document.getElementById('newHabitTarget').value='';
+    document.getElementById('newHabitUnit').value='';
   }catch(err){
     showToast(err.message||'No pude crear el hábito','error');
   }
@@ -1836,7 +1842,7 @@ function stopCamera(){
   if(video)video.srcObject=null;
 }
 function openPhotoModal(taskId){
-  state.currentPhotoTask=taskId;state.currentPhotoFile=null;
+  state.currentPhotoTask=taskId;state.currentPhotoFile=null;state.photoModalMode='task';
   document.getElementById('verifyResult').className='verify-result';
   document.getElementById('verifyResult').innerHTML='';
   document.getElementById('verifySpinner').className='verify-spinner';
@@ -1898,7 +1904,11 @@ async function verifyPhoto(){
       r.readAsDataURL(state.currentPhotoFile);
     });
 
-    const response=await apiFetch(`${API}/tasks/${state.currentPhotoTask}/verify-photo`,{
+    const isHabit=state.photoModalMode==='habit';
+    const verifyEndpoint=isHabit
+      ?`${API}/habits/${state.currentPhotoTask}/verify-photo`
+      :`${API}/tasks/${state.currentPhotoTask}/verify-photo`;
+    const response=await apiFetch(verifyEndpoint,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -1928,13 +1938,15 @@ async function verifyPhoto(){
           <div class="verify-meta">Confianza ${confidence}%${modeNote}</div>
           ${tags}
         </div>`;
-      const t=state.tasks.find(x=>x.id===state.currentPhotoTask);
-      if(t){t.verified=true;t.done=true}
-      setTimeout(()=>{
-        closeModal('photoModal');
-        renderHomeTaskPreview();renderFullTasks();updateKPIs();
-        showToast('Tarea verificada por IA ✅','success');
-      },1800);
+      if(state.photoModalMode==='habit'){
+        const h=state.habits.find(x=>x.id===state.currentPhotoTask);
+        if(h){h.verified=true;h.done=true;h.current=h.target;}
+        setTimeout(()=>{closeModal('photoModal');renderHabits();updateKPIs();showToast('Hábito verificado por IA ✅','success');},1800);
+      } else {
+        const t=state.tasks.find(x=>x.id===state.currentPhotoTask);
+        if(t){t.verified=true;t.done=true}
+        setTimeout(()=>{closeModal('photoModal');renderHomeTaskPreview();renderFullTasks();updateKPIs();showToast('Verificado por IA ✅','success');},1800);
+      }
     } else {
       res.className='verify-result fail';
       res.innerHTML=`
@@ -1960,7 +1972,7 @@ window.captureCameraPhoto=captureCameraPhoto;
 window.retakeCameraPhoto=retakeCameraPhoto;
 
 // ── COMMUNITY ─────────────────────────────────────────
-const catLabels={all:'Todo',gym:'💪 Gym',finanzas:'💰 Finanzas',habitos:'🔥 Hábitos',general:'💬 General'};
+const catLabels={all:'Todo',gym:'💪 Gym',finanzas:'💰 Finanzas',habitos:'🔥 Tareas',general:'💬 General'};
 const catClass={gym:'cat-gym',finanzas:'cat-fin',habitos:'cat-hab',general:'cat-gen'};
 function renderPosts(){
   const el=document.getElementById('postList');if(!el)return;
