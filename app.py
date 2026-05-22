@@ -238,6 +238,33 @@ def get_supabase_key_role():
 def has_privileged_supabase_key():
     return get_supabase_key_role() in {"service_role", "secret"}
 
+def _is_schema_cache_error(exc):
+    s = str(exc)
+    return "PGRST204" in s or "schema cache" in s.lower()
+
+def _sb_insert(table, payload, core_keys):
+    try:
+        return supabase.table(table).insert(payload).execute()
+    except Exception as e:
+        if _is_schema_cache_error(e):
+            minimal = {k: v for k, v in payload.items() if k in core_keys}
+            return supabase.table(table).insert(minimal).execute()
+        raise
+
+def _sb_update(table, updates, core_keys, eq_filters):
+    def _run(upd):
+        q = supabase.table(table).update(upd)
+        for col, val in eq_filters.items():
+            q = q.eq(col, val)
+        return q.execute()
+    try:
+        return _run(updates)
+    except Exception as e:
+        if _is_schema_cache_error(e):
+            minimal = {k: v for k, v in updates.items() if k in core_keys}
+            return _run(minimal) if minimal else None
+        raise
+
 def week_dates(reference=None):
     base = reference or date.today()
     monday = base - timedelta(days=base.weekday())
@@ -1142,10 +1169,11 @@ def create_task():
             "verified": False,
             "unit": body.get("unit", "veces"),
             "target": float(body.get("target", 1) or 1),
-            "current": 0
+            "current": 0,
         }
+        core = {"user_id", "name", "period", "done", "requires_photo", "verified"}
         try:
-            res = supabase.table("tasks").insert(payload).execute()
+            res = _sb_insert("tasks", payload, core)
             row = (res.data or [payload])[0]
             return ok(map_task_row(row), "Tarea creada")
         except Exception as e:
@@ -1192,8 +1220,8 @@ def update_task(task_id):
         if not update_fields:
             return err("Sin cambios para actualizar")
         try:
-            res = supabase.table("tasks").update(update_fields).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
-            if not res.data:
+            res = _sb_update("tasks", update_fields, {"name", "period", "done", "requires_photo", "verified"}, {"id": task_id, "user_id": get_current_user_id()})
+            if not res or not res.data:
                 return err("Tarea no encontrada", 404)
             return ok(map_task_row(res.data[0]), "Tarea actualizada")
         except Exception as e:
@@ -1260,9 +1288,9 @@ def complete_task(task_id):
             mapped_current = map_task_row(current)
             if bool(new_done) and task_requires_camera_verification(mapped_current) and not mapped_current.get("verified"):
                 return err("Las tareas de gym requieren una foto tomada con cámara y verificada por IA", 403)
-            
-            upd = supabase.table("tasks").update(updates).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
-            task = map_task_row(upd.data[0]) if upd.data else map_task_row({**current, "done": new_done})
+
+            upd = _sb_update("tasks", updates, {"done"}, {"id": task_id, "user_id": get_current_user_id()})
+            task = map_task_row(upd.data[0]) if (upd and upd.data) else map_task_row({**current, "done": new_done})
 
             tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
             bet_check = _check_bet(tasks_res.data or [])
@@ -1443,7 +1471,7 @@ def verify_photo(task_id):
     if result.get("approved"):
         if SUPABASE_ENABLED and supabase:
             try:
-                supabase.table("tasks").update({"verified": True, "done": True}).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
+                _sb_update("tasks", {"verified": True, "done": True}, {"verified", "done"}, {"id": task_id, "user_id": get_current_user_id()})
                 tasks_res = supabase.table("tasks").select("done").eq("user_id", get_current_user_id()).execute()
                 bet_won = _check_bet(tasks_res.data or [])
                 result["betWon"] = bet_won
