@@ -2216,15 +2216,32 @@ def dashboard():
 
 @app.route("/api/health", methods=["GET"])
 def health():
+    tasks_cols = []
+    tasks_error = ""
+    if SUPABASE_ENABLED and supabase:
+        try:
+            res = supabase.table("tasks").select("id,name,category,unit,target,current,done").limit(0).execute()
+            tasks_cols = ["id", "name", "category", "unit", "target", "current", "done"]
+        except Exception as e:
+            tasks_error = str(e)
+            try:
+                res2 = supabase.table("tasks").select("id,name,done").limit(0).execute()
+                tasks_cols = ["id", "name", "done"]
+            except Exception as e2:
+                tasks_error = str(e2)
+
     return ok({
         "status": "ok",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "timestamp": now_str(),
         "supabaseEnabled": SUPABASE_ENABLED,
         "supabaseConfigured": bool(SUPABASE_URL and SUPABASE_KEY),
+        "supabaseUrl": (SUPABASE_URL[:40] + "...") if len(SUPABASE_URL) > 40 else SUPABASE_URL,
         "supabaseBackendKeyRole": get_supabase_key_role(),
         "authUsersStore": "supabase" if has_privileged_supabase_key() else "local-json",
         "supabaseError": SUPABASE_ERROR,
+        "tasksColumnsOk": tasks_cols,
+        "tasksColumnsError": tasks_error,
     })
 
 # ── RUN ───────────────────────────────────────────────
