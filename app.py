@@ -251,6 +251,48 @@ def get_supabase_key_role():
 def has_privileged_supabase_key():
     return get_supabase_key_role() in {"service_role", "secret"}
 
+def _is_schema_cache_error(exc):
+    s = str(exc)
+    return "PGRST204" in s or "schema cache" in s.lower()
+
+def _extract_bad_column(exc):
+    import re
+    m = re.search(r"Could not find the '(\w+)' column", str(exc))
+    return m.group(1) if m else None
+
+def _sb_insert(table, payload, required_keys):
+    current = dict(payload)
+    for _ in range(12):
+        try:
+            return supabase.table(table).insert(current).execute()
+        except Exception as e:
+            if _is_schema_cache_error(e):
+                col = _extract_bad_column(e)
+                if col and col not in required_keys and col in current:
+                    current.pop(col)
+                    continue
+            raise
+    raise Exception("Insert fallido tras múltiples reintentos de esquema")
+
+def _sb_update(table, updates, required_keys, eq_filters):
+    def _run(upd):
+        q = supabase.table(table).update(upd)
+        for col, val in eq_filters.items():
+            q = q.eq(col, val)
+        return q.execute()
+    current = dict(updates)
+    for _ in range(12):
+        try:
+            return _run(current)
+        except Exception as e:
+            if _is_schema_cache_error(e):
+                col = _extract_bad_column(e)
+                if col and col not in required_keys and col in current:
+                    current.pop(col)
+                    continue
+            raise
+    return None
+
 def week_dates(reference=None):
     base = reference or date.today()
     monday = base - timedelta(days=base.weekday())
@@ -449,8 +491,27 @@ def call_places365_scene_classification(image_bytes):
         import torch
         from PIL import Image
         from torchvision import transforms
+    except Exception as exc:
+        return normalize_photo_verification_result({
+            "approved": False,
+            "confidence": 0,
+            "detectedItems": ["places365 dependencias faltantes"],
+            "reason": "Places365 no disponible: instale torch, torchvision y pillow.",
+            "mode": "places365-local",
+        })
 
+    try:
         model, categories, device = _load_places365()
+    except Exception as exc:
+        return normalize_photo_verification_result({
+            "approved": False,
+            "confidence": 0,
+            "detectedItems": ["places365 no instalado"],
+            "reason": f"Places365 no disponible: {str(exc)}",
+            "mode": "places365-local",
+        })
+
+    try:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         preprocess = transforms.Compose([
             transforms.Resize(256),
@@ -476,7 +537,6 @@ def call_places365_scene_classification(image_bytes):
             if any(scene in item["label"] for scene in PLACES365_GYM_SCENES)
         ]
         best_gym = max(gym_matches, key=lambda item: item["score"], default={"label": "", "score": 0})
-        best = predictions[0] if predictions else {"label": "", "score": 0}
 
         approved = best_gym["score"] >= PLACES365_GYM_THRESHOLD
         confidence = 0
@@ -503,7 +563,13 @@ def call_places365_scene_classification(image_bytes):
             "mode": "places365-local",
         })
     except Exception as exc:
-        return {"fallback": "huggingface", "reason": str(exc)}
+        return normalize_photo_verification_result({
+            "approved": False,
+            "confidence": 0,
+            "detectedItems": ["places365 error interno"],
+            "reason": f"Places365 produjo un error interno: {str(exc)}",
+            "mode": "places365-local",
+        })
 
 def call_hugging_face_zero_shot(image_b64):
     if not HF_TOKEN:
@@ -1116,6 +1182,7 @@ def create_task():
             "due_date": body.get("due_date") or None,
             "done": False,
         }
+        core = {"user_id", "name"}
         try:
             res = supabase.table(TASKS_TABLE).insert(payload).execute()
             row = (res.data or [payload])[0]
@@ -1280,7 +1347,6 @@ def _check_bet(tasks):
 # ══════════════════════════════════════════════════════
 #  VERIFICACIÓN DE FOTO CON IA (Hugging Face CLIP)
 # ══════════════════════════════════════════════════════
-
 
 # ══════════════════════════════════════════════════════
 #  HÁBITOS
@@ -2111,15 +2177,32 @@ def dashboard():
 
 @app.route("/api/health", methods=["GET"])
 def health():
+    tasks_cols = []
+    tasks_error = ""
+    if SUPABASE_ENABLED and supabase:
+        try:
+            res = supabase.table("tasks").select("id,name,category,unit,target,current,done").limit(0).execute()
+            tasks_cols = ["id", "name", "category", "unit", "target", "current", "done"]
+        except Exception as e:
+            tasks_error = str(e)
+            try:
+                res2 = supabase.table("tasks").select("id,name,done").limit(0).execute()
+                tasks_cols = ["id", "name", "done"]
+            except Exception as e2:
+                tasks_error = str(e2)
+
     return ok({
         "status": "ok",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "timestamp": now_str(),
         "supabaseEnabled": SUPABASE_ENABLED,
         "supabaseConfigured": bool(SUPABASE_URL and SUPABASE_KEY),
+        "supabaseUrl": (SUPABASE_URL[:40] + "...") if len(SUPABASE_URL) > 40 else SUPABASE_URL,
         "supabaseBackendKeyRole": get_supabase_key_role(),
         "authUsersStore": "supabase" if has_privileged_supabase_key() else "local-json",
         "supabaseError": SUPABASE_ERROR,
+        "tasksColumnsOk": tasks_cols,
+        "tasksColumnsError": tasks_error,
     })
 
 # ── RUN ───────────────────────────────────────────────

@@ -25,7 +25,17 @@ CREATE TABLE IF NOT EXISTS tasks (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
-  category VARCHAR(50) DEFAULT 'habitos' CHECK (category IN ('gym', 'social', 'habitos', 'salud_mental')),
+  category VARCHAR(50) DEFAULT 'habitos' CHECK (category IN (
+    'gym',
+    'social',
+    'habitos',
+    'salud_mental',
+    'salud',
+    'procrastinacion',
+    'estudio',
+    'trabajo',
+    'hogar'
+  )),
   period VARCHAR(50) DEFAULT 'diaria',
   done BOOLEAN DEFAULT FALSE,
   requires_photo BOOLEAN DEFAULT FALSE,
@@ -37,14 +47,41 @@ CREATE TABLE IF NOT EXISTS habits (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
+  description TEXT,
+  category VARCHAR(50) DEFAULT 'habitos' CHECK (category IN (
+    'gym',
+    'social',
+    'habitos',
+    'salud_mental',
+    'salud',
+    'procrastinacion',
+    'estudio',
+    'trabajo',
+    'hogar'
+  )),
+  period VARCHAR(50) DEFAULT 'diaria',
+  frequency VARCHAR(50),
+  done BOOLEAN DEFAULT FALSE,
+  requires_photo BOOLEAN DEFAULT FALSE,
+  verified BOOLEAN DEFAULT FALSE,
+  unit VARCHAR(20) DEFAULT 'veces',
+  target NUMERIC DEFAULT 1,
+  current NUMERIC DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS habit_routines (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
   icon VARCHAR(10) DEFAULT '🔥',
   streak INT DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS habit_logs (
+CREATE TABLE IF NOT EXISTS habit_routine_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  habit_id UUID NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+  habit_id UUID NOT NULL REFERENCES habit_routines(id) ON DELETE CASCADE,
   log_date DATE NOT NULL DEFAULT CURRENT_DATE,
   done BOOLEAN DEFAULT FALSE,
   UNIQUE (habit_id, log_date)
