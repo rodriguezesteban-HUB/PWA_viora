@@ -807,6 +807,131 @@ function createMiniCelebration(x, y) {
 }
 
 // ==========================================
+// AGENT CHAT
+// ==========================================
+
+let agentHistory = [];
+let agentTotalTokens = 0;
+
+function openAgentChat() {
+    const overlay = document.getElementById('agentOverlay');
+    if (!overlay) { console.error('agentOverlay no encontrado'); return; }
+    overlay.classList.add('open');
+    setTimeout(() => document.getElementById('agentInput')?.focus(), 350);
+}
+window.openAgentChat = openAgentChat;
+
+function _updateTokenBar(usage) {
+    if (!usage) return;
+    agentTotalTokens += usage.total_tokens || 0;
+    const bar = document.getElementById('agentTokenBar');
+    const label = document.getElementById('agentTokenLabel');
+    if (!bar || !label) return;
+    bar.style.display = 'flex';
+    label.textContent = `↑${usage.input_tokens} ↓${usage.output_tokens} · sesión: ${agentTotalTokens.toLocaleString()} tokens`;
+}
+
+function closeAgentChat() {
+    document.getElementById('agentOverlay').classList.remove('open');
+}
+
+function _appendAgentMessage(role, text, tools, usage) {
+    const container = document.getElementById('agentMessages');
+    const div = document.createElement('div');
+    div.className = `agent-msg agent-msg--${role === 'user' ? 'user' : 'bot'}`;
+    let inner = `<div class="agent-bubble">${text.replace(/\n/g, '<br>')}</div>`;
+    if (tools && tools.length) {
+        const labels = tools.map(t => {
+            if (t.tool === 'complete_habit') return `✅ ${t.input.habit_name}`;
+            if (t.tool === 'complete_task') return `✅ ${t.input.task_name}`;
+            if (t.tool === 'create_task') return `➕ tarea: ${t.input.name}`;
+            if (t.tool === 'create_habit') return `➕ hábito: ${t.input.name}`;
+            if (t.tool === 'log_finance') return `💰 ${t.input.type === 'income' ? 'ingreso' : 'gasto'}: $${Number(t.input.amount).toLocaleString()}`;
+            return t.tool;
+        });
+        inner += `<div style="margin-top:4px">${labels.map(l => `<span class="agent-tool-badge">${l}</span>`).join(' ')}</div>`;
+    }
+    if (role !== 'user' && usage) {
+        inner += `<div class="agent-token-hint">↑${usage.input_tokens} ↓${usage.output_tokens} tokens</div>`;
+    }
+    div.innerHTML = inner;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}
+
+function _showAgentTyping() {
+    const container = document.getElementById('agentMessages');
+    const div = document.createElement('div');
+    div.className = 'agent-msg agent-msg--bot';
+    div.id = 'agentTyping';
+    div.innerHTML = '<div class="agent-bubble agent-typing"><span></span><span></span><span></span></div>';
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}
+
+function _removeAgentTyping() {
+    const el = document.getElementById('agentTyping');
+    if (el) el.remove();
+}
+
+async function sendAgentMessage() {
+    const input = document.getElementById('agentInput');
+    const btn = document.getElementById('agentSendBtn');
+    const status = document.getElementById('agentStatus');
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    btn.disabled = true;
+    _appendAgentMessage('user', text);
+    agentHistory.push({ role: 'user', content: text });
+
+    status.textContent = 'pensando...';
+    _showAgentTyping();
+
+    try {
+        const res = await apiFetch(`${API_BASE}/agent/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text, history: agentHistory.slice(-12) }),
+        });
+        const data = await res.json();
+        _removeAgentTyping();
+
+        if (data.success) {
+            const reply = data.data.reply;
+            const tools = data.data.toolsUsed || [];
+            const usage = data.data.usage;
+            _appendAgentMessage('bot', reply, tools, usage);
+            _updateTokenBar(usage);
+            agentHistory.push({ role: 'assistant', content: reply });
+            if (tools.length) {
+                showToast('Avance registrado 💪', 'success');
+                loadVioraData();
+            }
+            status.textContent = 'listo para ayudarte';
+        } else {
+            _appendAgentMessage('bot', data.error || 'Ocurrió un error, intenta de nuevo.');
+            status.textContent = 'error';
+        }
+    } catch (e) {
+        _removeAgentTyping();
+        _appendAgentMessage('bot', 'No pude conectarme al servidor. ¿Está corriendo el backend?');
+        status.textContent = 'sin conexión';
+    } finally {
+        btn.disabled = false;
+        input.focus();
+    }
+}
+
+document.getElementById('agentInput')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendAgentMessage();
+    }
+});
+
+// ==========================================
 // INIT
 // ==========================================
 

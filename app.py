@@ -62,7 +62,10 @@ def load_env_file():
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 key, value = line.split("=", 1)
-                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+                k = key.strip()
+                v = value.strip().strip('"').strip("'")
+                if v:
+                    os.environ.setdefault(k, v)
     except Exception:
         pass
 
@@ -2089,6 +2092,305 @@ def update_user():
             user[field] = body[field]
     write_json(USERS_FILE, users)
     return ok(user, "Perfil actualizado")
+
+# ══════════════════════════════════════════════════════
+#  AGENTE IA (Claude)
+# ══════════════════════════════════════════════════════
+
+def _get_anthropic_key():
+    return (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+
+def _build_agent_context(user_id):
+    habits_lines, tasks_lines, finances_lines = [], [], []
+    try:
+        if SUPABASE_ENABLED and supabase:
+            h_res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", user_id).execute()
+            for h in (h_res.data or []):
+                m = map_habit_row(h)
+                status = "✅" if m["done"] else f"{m['current']}/{m['target']} {m['unit']}"
+                habits_lines.append(f"- [{m['id']}] {m['name']} ({m['category']}) → {status}")
+            t_res = supabase.table(TASKS_TABLE).select("*").eq("user_id", user_id).execute()
+            for t in (t_res.data or []):
+                m = map_task_row(t)
+                status = "✅" if m["done"] else "pendiente"
+                tasks_lines.append(f"- [{m['id']}] {m['name']} → {status}")
+            f_res = supabase.table("finances").select("*").eq("user_id", user_id).execute()
+            income = sum(f["amount"] for f in (f_res.data or []) if f.get("type") == "income")
+            expense = sum(f["amount"] for f in (f_res.data or []) if f.get("type") == "expense")
+            finances_lines.append(f"Ingresos: ${income:.0f} | Gastos: ${expense:.0f} | Balance: ${income - expense:.0f}")
+    except Exception:
+        pass
+    return {
+        "habits_text": "\n".join(habits_lines) or "Sin hábitos registrados",
+        "tasks_text": "\n".join(tasks_lines) or "Sin tareas registradas",
+        "finances_text": "\n".join(finances_lines) or "Sin movimientos este mes",
+    }
+
+def _execute_agent_tool(tool_name, tool_input, user_id):
+    try:
+        if tool_name == "complete_habit":
+            habit_id = tool_input.get("habit_id", "")
+            amount = float(tool_input.get("amount", 1) or 1)
+            if SUPABASE_ENABLED and supabase:
+                res = supabase.table(ROUTINES_TABLE).select("*").eq("id", habit_id).eq("user_id", user_id).limit(1).execute()
+                if not res.data:
+                    return "Hábito no encontrado"
+                current = res.data[0]
+                mapped = map_habit_row(current)
+                new_current = min(float(current.get("current", 0) or 0) + amount, mapped["target"])
+                new_done = new_current >= mapped["target"]
+                supabase.table(ROUTINES_TABLE).update({"current": new_current, "done": new_done}).eq("id", habit_id).eq("user_id", user_id).execute()
+                return f"Progreso guardado: {new_current}/{mapped['target']} {mapped['unit']}. {'¡Completado!' if new_done else 'Sigue así.'}"
+            return "Supabase no disponible"
+
+        elif tool_name == "complete_task":
+            task_id = tool_input.get("task_id", "")
+            if SUPABASE_ENABLED and supabase:
+                res = supabase.table(TASKS_TABLE).update({"done": True}).eq("id", task_id).eq("user_id", user_id).execute()
+                if not res.data:
+                    return "Tarea no encontrada"
+                return "Tarea marcada como completada"
+            return "Supabase no disponible"
+
+        elif tool_name == "create_task":
+            name = (tool_input.get("name") or "").strip()
+            if not name:
+                return "El nombre de la tarea es requerido"
+            payload = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "name": name,
+                "description": tool_input.get("description") or None,
+                "due_date": tool_input.get("due_date") or None,
+                "done": False,
+            }
+            if SUPABASE_ENABLED and supabase:
+                res = supabase.table(TASKS_TABLE).insert(payload).execute()
+                row = (res.data or [payload])[0]
+                return f"Tarea '{row.get('name', name)}' creada correctamente."
+            return "Supabase no disponible"
+
+        elif tool_name == "create_habit":
+            name = (tool_input.get("name") or "").strip()
+            if not name:
+                return "El nombre del hábito es requerido"
+            category = tool_input.get("category", "habitos")
+            if category not in TASK_CATEGORIES:
+                category = "habitos"
+            payload = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "name": name,
+                "category": category,
+                "period": tool_input.get("period", "diaria"),
+                "unit": tool_input.get("unit", "veces"),
+                "target": float(tool_input.get("target", 1) or 1),
+                "current": 0,
+                "done": False,
+                "requires_photo": False,
+                "verified": False,
+            }
+            if SUPABASE_ENABLED and supabase:
+                res = supabase.table(ROUTINES_TABLE).insert(payload).execute()
+                row = (res.data or [payload])[0]
+                return f"Hábito '{row.get('name', name)}' creado ({category}, meta {payload['target']} {payload['unit']})."
+            return "Supabase no disponible"
+
+        elif tool_name == "log_finance":
+            ftype = tool_input.get("type", "expense")
+            if ftype not in ("income", "expense"):
+                ftype = "expense"
+            amount = float(tool_input.get("amount", 0) or 0)
+            if amount <= 0:
+                return "El monto debe ser mayor a 0"
+            description = (tool_input.get("description") or "Sin descripción").strip()
+            payload = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "type": ftype,
+                "amount": amount,
+                "description": description,
+                "date": date.today().isoformat(),
+            }
+            if SUPABASE_ENABLED and supabase:
+                supabase.table("finances").insert(payload).execute()
+                label = "Ingreso" if ftype == "income" else "Gasto"
+                return f"{label} de ${amount:,.0f} ({description}) registrado."
+            return "Supabase no disponible"
+
+    except Exception as e:
+        return f"Error al ejecutar acción: {str(e)}"
+    return "Herramienta desconocida"
+
+@app.route("/api/agent/chat", methods=["POST"])
+def agent_chat():
+    """Chat con el agente IA Viora.
+    Body: { message: str, history?: [{role, content}] }
+    """
+    ANTHROPIC_API_KEY = _get_anthropic_key()
+    if not ANTHROPIC_API_KEY:
+        return err("ANTHROPIC_API_KEY no configurado", 503)
+    body = request.get_json(silent=True) or {}
+    user_message = (body.get("message") or "").strip()
+    history = body.get("history") or []
+    if not user_message:
+        return err("Mensaje vacío")
+
+    user_id = get_current_user_id()
+    ctx = _build_agent_context(user_id)
+
+    system_prompt = f"""Eres Viora Coach, el asistente personal de disciplina dentro de la app Viora.
+Eres directo, honesto y motivador. Sabes cuándo felicitar y cuándo exigir más.
+
+ESTADO ACTUAL DEL USUARIO:
+
+HÁBITOS:
+{ctx['habits_text']}
+
+TAREAS:
+{ctx['tasks_text']}
+
+FINANZAS:
+{ctx['finances_text']}
+
+Cuando el usuario mencione que hizo algo (ej: "me tomé un vaso de agua", "fui al gym", "terminé el reporte"), identifica si coincide con un hábito o tarea y registra el avance usando las herramientas disponibles.
+Siempre confirma al usuario qué registraste. Sé breve (2-3 oraciones máximo salvo que pidan más detalle).
+Responde SIEMPRE en español."""
+
+    tools = [
+        {
+            "name": "complete_habit",
+            "description": "Registra progreso en un hábito del usuario cuando menciona haberlo realizado.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "habit_id": {"type": "string", "description": "ID exacto del hábito (del listado)"},
+                    "habit_name": {"type": "string", "description": "Nombre del hábito"},
+                    "amount": {"type": "number", "description": "Cantidad a sumar al progreso (default 1)"}
+                },
+                "required": ["habit_id", "habit_name"]
+            }
+        },
+        {
+            "name": "complete_task",
+            "description": "Marca una tarea como completada cuando el usuario menciona haberla terminado.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "string", "description": "ID exacto de la tarea"},
+                    "task_name": {"type": "string", "description": "Nombre de la tarea"}
+                },
+                "required": ["task_id", "task_name"]
+            }
+        },
+        {
+            "name": "create_task",
+            "description": "Crea una nueva tarea cuando el usuario pide agregar una meta o tarea.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Nombre de la tarea"},
+                    "description": {"type": "string", "description": "Descripción opcional"},
+                    "due_date": {"type": "string", "description": "Fecha límite opcional en formato YYYY-MM-DD"}
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "create_habit",
+            "description": "Crea un nuevo hábito cuando el usuario quiere agregar una rutina o hábito.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Nombre del hábito"},
+                    "category": {"type": "string", "description": "Categoría: gym, social, habitos, salud_mental, salud, procrastinacion, estudio, trabajo, hogar"},
+                    "unit": {"type": "string", "description": "Unidad de medida, ej: vasos, km, minutos, veces"},
+                    "target": {"type": "number", "description": "Meta diaria numérica, ej: 8 (vasos de agua)"},
+                    "period": {"type": "string", "description": "Frecuencia: diaria, semanal"}
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "log_finance",
+            "description": "Registra un ingreso o gasto cuando el usuario menciona dinero que ganó o gastó.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "description": "'income' para ingresos, 'expense' para gastos"},
+                    "amount": {"type": "number", "description": "Monto en pesos colombianos"},
+                    "description": {"type": "string", "description": "Descripción del movimiento"}
+                },
+                "required": ["type", "amount", "description"]
+            }
+        }
+    ]
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        messages = []
+        for h in history[-12:]:
+            if h.get("role") in ("user", "assistant") and h.get("content"):
+                messages.append({"role": h["role"], "content": str(h["content"])})
+        messages.append({"role": "user", "content": user_message})
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            system=system_prompt,
+            tools=tools,
+            messages=messages,
+        )
+
+        total_input = response.usage.input_tokens
+        total_output = response.usage.output_tokens
+
+        tool_results_meta = []
+        if response.stop_reason == "tool_use":
+            tool_result_blocks = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    result_text = _execute_agent_tool(block.name, block.input, user_id)
+                    tool_results_meta.append({
+                        "tool": block.name,
+                        "input": block.input,
+                        "result": result_text,
+                    })
+                    tool_result_blocks.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result_text,
+                    })
+
+            follow_messages = messages + [
+                {"role": "assistant", "content": response.content},
+                {"role": "user", "content": tool_result_blocks},
+            ]
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1024,
+                system=system_prompt,
+                tools=tools,
+                messages=follow_messages,
+            )
+            total_input += response.usage.input_tokens
+            total_output += response.usage.output_tokens
+
+        reply = " ".join(b.text for b in response.content if hasattr(b, "text")).strip()
+        return ok({
+            "reply": reply,
+            "toolsUsed": tool_results_meta,
+            "usage": {
+                "input_tokens": total_input,
+                "output_tokens": total_output,
+                "total_tokens": total_input + total_output,
+            },
+        })
+
+    except Exception as e:
+        return err(f"Error del agente: {str(e)}", 502)
 
 # ══════════════════════════════════════════════════════
 #  DASHBOARD GENERAL
