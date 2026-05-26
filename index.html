@@ -42,6 +42,7 @@ body{
   color:var(--txt1);
   display:flex;justify-content:center;align-items:flex-start;
   min-height:100vh;
+  overflow-x:hidden;
   transition:background var(--trans), color var(--trans);
 }
 button,input,textarea,select{font-family:var(--font-body);color:inherit;border:none;background:none;outline:none;cursor:pointer}
@@ -100,7 +101,10 @@ img{display:block;max-width:100%}
 
 /* ── PHONE SHELL ─────────────────────────────────────── */
 .phone{
-  width:100%;max-width:420px;min-height:100vh;height:100vh;
+  width:min(420px, 100vw);
+  max-width:420px;
+  min-height:100vh;height:100vh;
+  min-height:100dvh;height:100dvh;
   background:var(--bg1);
   position:relative;overflow:hidden;
   display:flex;flex-direction:column;
@@ -120,12 +124,16 @@ img{display:block;max-width:100%}
 .topbar{
   display:flex;align-items:center;justify-content:space-between;
   padding:8px 18px 10px;flex-shrink:0;
+  width:100%;
+  min-width:0;
 }
 .logo{display:flex;align-items:center;gap:8px}
+.logo{min-width:0;flex-shrink:1}
+.logo-name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bee{display:inline-block;font-size:24px;animation:beeFly 3s ease-in-out infinite}
 .logo-name{font-family:var(--font-head);font-size:20px;font-weight:800;color:var(--txt1);letter-spacing:-0.5px}
 .logo-name span{color:var(--amber)}
-.topbar-actions{display:flex;align-items:center;gap:8px}
+.topbar-actions{display:flex;align-items:center;gap:8px;justify-content:flex-end;min-width:0;flex:1}
 .hidden{display:none !important}
 .user-badge{
   max-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -155,6 +163,162 @@ img{display:block;max-width:100%}
   transition:all var(--trans);
 }
 .theme-toggle:hover{background:var(--amber-dim);transform:rotate(20deg)}
+
+/* ── CALENDAR PANEL ─────────────────────────────────── */
+.calendar-panel{
+  position:absolute;
+  top:64px;
+  right:18px;
+  width:min(360px,92vw);
+  max-height:calc(100% - 64px - 18px);
+  overflow-y:auto;
+  overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  background:var(--bg2);
+  border:0.5px solid var(--border);border-radius:12px;padding:12px;z-index:600;
+  box-shadow:0 20px 60px rgba(0,0,0,0.5);transition:transform 0.18s var(--trans),opacity 0.18s var(--trans);
+}
+.calendar-panel.hidden{opacity:0;transform:translateY(-8px);pointer-events:none}
+.calendar-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.calendar-header .icon-btn{flex-shrink:0}
+.calendar-title{flex:1;min-width:0;text-align:center;font-family:var(--font-head);font-weight:700;color:var(--txt1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.calendar-view-toggle{
+  display:inline-flex;gap:6px;
+  background:var(--bg3);border:0.5px solid var(--border);
+  border-radius:999px;padding:4px;
+}
+.calendar-view-btn{
+  padding:6px 10px;border-radius:999px;
+  font-size:12px;font-weight:800;
+  color:var(--txt3);background:transparent;
+  transition:background var(--trans),color var(--trans),transform var(--trans);
+}
+.calendar-view-btn:active{transform:scale(0.98)}
+.calendar-view-btn.active{background:var(--bg2);color:var(--txt1);border:0.5px solid var(--border)}
+.calendar-grid-header{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:6px;color:var(--txt3);font-size:12px;text-align:center}
+.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.calendar-day{min-width:0;min-height:72px;background:var(--bg0);border-radius:10px;padding:8px;border:0.5px solid var(--border);color:var(--txt2);font-size:12px;display:flex;flex-direction:column}
+.calendar-day.outside{opacity:0.35}
+.calendar-day .date{font-size:12px;font-weight:700;color:var(--txt1);margin-bottom:6px}
+.calendar-event{display:block;font-size:12px;padding:6px;border-radius:8px;margin-bottom:6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.calendar-event .ev-emoji{margin-right:6px}
+.calendar-event .ev-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+.calendar-event.task .ev-dot{background:var(--green)}
+.calendar-event.habit{background:var(--bg3);border:0.5px solid rgba(245,158,11,0.12);color:var(--amber);}
+.calendar-event.task{background:var(--bg3);border:0.5px solid rgba(34,197,94,0.06);color:var(--green)}
+.calendar-event.done{text-decoration:line-through;opacity:0.7}
+.calendar-footer{margin-top:8px;font-size:12px;color:var(--txt3);display:flex;justify-content:space-between;align-items:center}
+.cal-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-2px}
+.cal-dot.cal-habit{background:var(--amber)}
+.cal-dot.cal-task{background:var(--green)}
+
+/* Match habit category colors inside calendar */
+.calendar-event.habit.cat-gym{background:var(--purple-dim);border:0.5px solid var(--purple)33;color:var(--purple)}
+.calendar-event.habit.cat-social{background:var(--blue-dim);border:0.5px solid var(--blue)22;color:var(--blue-soft)}
+.calendar-event.habit.cat-habitos{background:var(--green-dim);border:0.5px solid var(--green)22;color:var(--green)}
+.calendar-event.habit.cat-salud_mental{background:var(--amber-dim);border:0.5px solid var(--amber)22;color:var(--amber)}
+.calendar-event.habit.cat-salud{background:var(--green-dim);border:0.5px solid var(--green)22;color:var(--green)}
+.calendar-event.habit.cat-estudio{background:var(--blue-dim);border:0.5px solid var(--blue)22;color:var(--blue-soft)}
+.calendar-event.habit.cat-trabajo{background:var(--purple-dim);border:0.5px solid var(--purple)33;color:var(--purple)}
+.calendar-event.habit.cat-hogar{background:var(--amber-dim);border:0.5px solid var(--amber)22;color:var(--amber)}
+
+/* Month view markers */
+.calendar-markers{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
+.cal-marker{
+  width:26px;height:22px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg3);
+  border:0.5px solid var(--border);
+  font-size:14px;
+}
+.cal-marker.habit{font-size:14px}
+.cal-marker.habit.cat-gym{background:var(--purple-dim);border:0.5px solid var(--purple)33;color:var(--purple)}
+.cal-marker.habit.cat-social{background:var(--blue-dim);border:0.5px solid var(--blue)22;color:var(--blue-soft)}
+.cal-marker.habit.cat-habitos{background:var(--green-dim);border:0.5px solid var(--green)22;color:var(--green)}
+.cal-marker.habit.cat-salud_mental{background:var(--amber-dim);border:0.5px solid var(--amber)22;color:var(--amber)}
+.cal-marker.habit.cat-salud{background:var(--green-dim);border:0.5px solid var(--green)22;color:var(--green)}
+.cal-marker.habit.cat-estudio{background:var(--blue-dim);border:0.5px solid var(--blue)22;color:var(--blue-soft)}
+.cal-marker.habit.cat-trabajo{background:var(--purple-dim);border:0.5px solid var(--purple)33;color:var(--purple)}
+.cal-marker.habit.cat-hogar{background:var(--amber-dim);border:0.5px solid var(--amber)22;color:var(--amber)}
+.cal-marker.task{
+  background:var(--green-dim);
+  border:0.5px solid var(--green)33;
+}
+.cal-marker.task::before{
+  content:'';width:8px;height:8px;border-radius:50%;
+  background:var(--green);display:block;
+}
+.cal-more{
+  height:22px;padding:0 8px;border-radius:999px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg2);border:0.5px solid var(--border);
+  font-size:11px;font-weight:800;color:var(--txt2);
+}
+
+/* Calendar day detail modal */
+.cal-detail-list{display:flex;flex-direction:column;gap:8px}
+.cal-detail-item{
+  display:flex;align-items:center;gap:10px;
+  background:var(--bg2);border:0.5px solid var(--border);
+  border-radius:12px;padding:10px 12px;
+}
+.cal-detail-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;background:var(--bg3);border:0.5px solid var(--border)}
+.cal-detail-dot.task{background:var(--green);border-color:var(--green)}
+.cal-detail-emoji{width:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.cal-detail-name{flex:1;min-width:0;color:var(--txt1);font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-detail-meta{color:var(--txt3);font-size:11px;margin-top:1px}
+.cal-detail-item.done .cal-detail-name{text-decoration:line-through;color:var(--txt3)}
+
+/* Weekday selector (habit weekly schedule) */
+.weekday-selector{display:flex;gap:8px;margin-top:6px}
+.weekday-pill{
+  width:34px;height:34px;border-radius:999px;
+  background:var(--bg2);
+  border:0.5px solid var(--border);
+  color:var(--txt2);
+  font-weight:800;font-size:13px;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform var(--trans),background var(--trans),color var(--trans),border-color var(--trans),box-shadow var(--trans);
+}
+.weekday-pill:active{transform:scale(0.96)}
+.weekday-pill.active{
+  background:var(--amber-dim);
+  border-color:var(--amber);
+  color:var(--amber);
+  box-shadow:0 0 0 3px rgba(245,158,11,0.18);
+}
+.weekday-pill:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(245,158,11,0.24)}
+
+@media (max-width: 420px){
+  .calendar-panel{left:10px;right:10px;width:auto}
+  .calendar-header{gap:8px}
+  .calendar-title{font-size:14px}
+  .calendar-view-btn{padding:6px 9px;font-size:11px}
+  .calendar-grid-header{gap:4px;font-size:11px}
+  .calendar-grid{gap:4px}
+  .calendar-day{min-height:58px;padding:6px}
+  .calendar-day .date{margin-bottom:4px}
+  .calendar-event{padding:4px;font-size:11px;border-radius:7px;margin-bottom:4px}
+
+  /* Make top bar fit on small screens */
+  .topbar{padding:8px 12px 10px}
+  .topbar-actions{gap:6px;min-width:0;flex-wrap:wrap;row-gap:6px}
+  .user-badge{display:none !important}
+  .icon-btn,.theme-toggle{width:32px;height:32px;font-size:14px}
+
+  /* Bottom nav: prevent cut-off */
+  .bottom-nav{width:100%;padding:8px 8px calc(18px + env(safe-area-inset-bottom, 0px));justify-content:space-between}
+  .nav-item{flex:1;min-width:0;padding:6px 6px}
+  .nav-label{font-size:9px}
+}
+
+@media (max-width: 360px){
+  /* Prefer showing action buttons */
+  .topbar-actions{gap:5px}
+  .icon-btn,.theme-toggle{width:30px;height:30px;font-size:13px}
+  .notif-dot{top:5px;right:5px}
+  .nav-label{font-size:8px}
+}
 
 /* ── SCROLL AREA ─────────────────────────────────────── */
 .scroll-area{
@@ -669,7 +833,7 @@ img{display:block;max-width:100%}
 /* ── MODAL ───────────────────────────────────────────── */
 .modal-overlay{
   display:none;position:fixed;inset:0;
-  background:rgba(0,0,0,0.75);z-index:200;
+  background:rgba(0,0,0,0.75);z-index:900;
   align-items:flex-end;justify-content:center;
 }
 .modal-overlay.open{display:flex;animation:fadeIn 0.2s ease}
@@ -844,10 +1008,35 @@ img{display:block;max-width:100%}
       <button class="theme-toggle" id="themeBtn" title="Cambiar modo" onclick="toggleTheme()">
         <i class="fa fa-sun" id="themeIcon"></i>
       </button>
+      <button class="icon-btn" id="calendarBtn" title="Calendario" onclick="toggleCalendar()">
+        <i class="fa fa-calendar-days"></i>
+      </button>
       <button class="icon-btn" onclick="showToast('Sin notificaciones nuevas','amber')">
         <i class="fa fa-bell"></i>
         <div class="notif-dot"></div>
       </button>
+    </div>
+  </div>
+
+  <!-- CALENDAR PANEL (desplegable) -->
+  <div class="calendar-panel hidden" id="calendarPanel" aria-hidden="true">
+    <div class="calendar-header">
+      <button class="icon-btn" id="calPrev" title="Mes anterior"><i class="fa fa-chevron-left"></i></button>
+      <div class="calendar-title" id="calendarTitle">Mayo 2026</div>
+      <button class="icon-btn" id="calNext" title="Mes siguiente"><i class="fa fa-chevron-right"></i></button>
+    </div>
+    <div style="display:flex;justify-content:center;margin:-2px 0 10px">
+      <div class="calendar-view-toggle" role="tablist" aria-label="Vista del calendario">
+        <button class="calendar-view-btn active" id="calViewMonth" type="button" role="tab" aria-selected="true">Mes</button>
+        <button class="calendar-view-btn" id="calViewWeek" type="button" role="tab" aria-selected="false">Semana</button>
+      </div>
+    </div>
+    <div class="calendar-grid-header">
+      <div>Lun</div><div>Mar</div><div>Mie</div><div>Jue</div><div>Vie</div><div>Sab</div><div>Dom</div>
+    </div>
+    <div class="calendar-grid" id="calendarGrid"></div>
+    <div class="calendar-footer">
+      <div id="calendarLegend"><span class="cal-dot cal-task"></span> Tareas en verde · Hábitos con color según su tipo</div>
     </div>
   </div>
 
@@ -1279,12 +1468,39 @@ img{display:block;max-width:100%}
           <option value="semanal">Semanal</option>
           <option value="unica">Única vez</option>
         </select>
+        <div id="habitWeekSelector" style="display:none">
+          <label style="font-size:12px;color:var(--txt2);margin-bottom:-4px">Días de la semana</label>
+          <div class="weekday-selector">
+            <button type="button" class="weekday-pill" data-day="0" title="Lunes">L</button>
+            <button type="button" class="weekday-pill" data-day="1" title="Martes">M</button>
+            <button type="button" class="weekday-pill" data-day="2" title="Miércoles">M</button>
+            <button type="button" class="weekday-pill" data-day="3" title="Jueves">J</button>
+            <button type="button" class="weekday-pill" data-day="4" title="Viernes">V</button>
+            <button type="button" class="weekday-pill" data-day="5" title="Sábado">S</button>
+            <button type="button" class="weekday-pill" data-day="6" title="Domingo">D</button>
+          </div>
+          <div class="task-meta" style="font-size:12px;color:var(--txt3);margin-top:4px">Selecciona los días en los que quieres repetir este hábito.</div>
+          <div class="task-meta" id="habitWeekSummary" style="font-size:12px;color:var(--txt2);margin-top:6px;display:none"></div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <input type="number" id="newHabitTarget" placeholder="Meta (ej: 8)" min="1" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
           <input type="text" id="newHabitUnit" placeholder="Unidad (ej: vasos)" style="background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:14px;color:var(--txt1);width:100%">
         </div>
         <button class="btn-primary" onclick="addHabit()">Crear hábito</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- CALENDAR DAY DETAIL MODAL -->
+<div class="modal-overlay" id="calendarDayModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal('calendarDayModal')"><i class="fa fa-xmark"></i></button>
+    <div class="modal-title" id="calendarDayTitle">📅 Detalle del día</div>
+    <div class="modal-body">
+      <div class="cal-detail-list" id="calendarDayList"></div>
+      <button class="btn-secondary" onclick="closeModal('calendarDayModal')">Cerrar</button>
     </div>
   </div>
 </div>
@@ -1566,10 +1782,15 @@ function normalizeTask(t){
   };
 }
 const habitCategoryLabels={gym:'Gym',salud:'Salud',salud_mental:'Salud mental',estudio:'Estudio',trabajo:'Trabajo',social:'Social',hogar:'Hogar',habitos:'General'};
+const habitCategoryEmoji={gym:'🏋️',salud:'❤️',salud_mental:'🧠',estudio:'📚',trabajo:'💼',social:'👥',hogar:'🏠',habitos:'✅'};
+function getHabitCategoryEmoji(category){
+  return habitCategoryEmoji[category] || '✅';
+}
 function normalizeHabit(h){
   const category=h.category||'habitos';
   const target=Number(h.target||1);
   const current=Number(h.current||0);
+  const week=Array.isArray(h.week)&&h.week.length===7? h.week.map(d=>Boolean(d)) : null;
   return {
     id:String(h.id),
     name:h.name||'Sin nombre',
@@ -1579,9 +1800,53 @@ function normalizeHabit(h){
     current,
     unit:h.unit||'veces',
     done:Boolean(h.done||(current>=target&&target>0)),
+    week,
     requiresPhoto:category==='gym',
     verified:Boolean(h.verified),
   };
+}
+const WEEKDAY_LABELS=['L','M','M','J','V','S','D'];
+let editingHabitId = null;
+function setHabitWeekSectionVisible(visible){
+  const el=document.getElementById('habitWeekSelector');
+  if(el) el.style.display = visible ? 'block' : 'none';
+  const summaryEl=document.getElementById('habitWeekSummary');
+  if(summaryEl && !visible) summaryEl.style.display='none';
+}
+function setHabitWeekSelection(week=[true,false,true,false,true,false,false]){
+  const buttons=document.querySelectorAll('#habitWeekSelector .weekday-pill');
+  buttons.forEach((btn,i)=>btn.classList.toggle('active', Array.isArray(week) ? Boolean(week[i]) : Boolean(week)));
+  updateHabitWeekSummary();
+}
+function getHabitWeekSelection(){
+  return Array.from(document.querySelectorAll('#habitWeekSelector .weekday-pill')).map(btn=>btn.classList.contains('active'));
+}
+function updateHabitWeekSummary(){
+  const summaryEl=document.getElementById('habitWeekSummary');
+  if(!summaryEl) return;
+  const period=document.getElementById('newHabitPeriod')?.value || 'diaria';
+  if(period!=='semanal'){
+    summaryEl.style.display='none';
+    summaryEl.textContent='';
+    return;
+  }
+  const week=getHabitWeekSelection();
+  const summary=formatHabitWeekSummary(week);
+  summaryEl.textContent = summary ? `Seleccionados: ${summary}` : 'Selecciona al menos un día';
+  summaryEl.style.display='block';
+}
+function updateHabitWeekVisibility(){
+  const period=document.getElementById('newHabitPeriod')?.value || 'diaria';
+  setHabitWeekSectionVisible(period==='semanal');
+  if(period==='semanal' && !getHabitWeekSelection().some(Boolean)){
+    setHabitWeekSelection([true,false,true,false,true,false,false]);
+  }
+  updateHabitWeekSummary();
+}
+function formatHabitWeekSummary(week){
+  if(!Array.isArray(week)||week.length!==7) return '';
+  const labels=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  return week.map((active,i)=>active?labels[i]:null).filter(Boolean).join(', ');
 }
 function normalizeFinance(f){
   return {
@@ -1686,6 +1951,214 @@ async function loadVioraData(){
   renderHomeTaskPreview();renderFullTasks();renderHabits();renderFinances();renderPosts();updateKPIs();renderProfile();
 }
 window.loadVioraData=loadVioraData;
+// ── CALENDAR LOGIC ───────────────────────────────────
+function isoFromLocalDate(d){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function dateFromISO(iso){
+  const [y,m,d]=String(iso).split('-').map(Number);
+  return new Date(y,(m||1)-1,d||1);
+}
+function startOfWeekMonday(d){
+  const date=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  const day=(date.getDay()+6)%7; // Mon=0
+  date.setDate(date.getDate()-day);
+  date.setHours(0,0,0,0);
+  return date;
+}
+function addDays(d,days){
+  const x=new Date(d.getTime());
+  x.setDate(x.getDate()+days);
+  return x;
+}
+function collectEventsForISO(iso){
+  const events=[];
+  // tasks due that date
+  state.tasks.forEach(t=>{
+    if(!t.due_date) return;
+    const dueISO=String(t.due_date).slice(0,10);
+    if(dueISO===iso){
+      events.push({type:'task',title:t.name,done:!!t.done});
+    }
+  });
+  // habits recurring
+  const date=dateFromISO(iso);
+  const wday=(date.getDay()+6)%7;
+  state.habits.forEach(h=>{
+    if(Array.isArray(h.week)&&h.week.length===7){
+      if(h.week[wday]) events.push({type:'habit',title:h.name,done:!!h.done,category:h.category});
+    } else if(h.period==='diaria'){
+      events.push({type:'habit',title:h.name,done:!!h.done,category:h.category});
+    }
+  });
+  return events;
+}
+let calendarState = {
+  year: new Date().getFullYear(),
+  month: new Date().getMonth(),
+  view: 'month', // 'month' | 'week'
+  selectedISO: isoFromLocalDate(new Date()),
+};
+function toggleCalendar(){
+  const panel = document.getElementById('calendarPanel');
+  panel.classList.toggle('hidden');
+  panel.setAttribute('aria-hidden', panel.classList.contains('hidden'));
+  if(!panel.classList.contains('hidden')) renderCalendar();
+}
+document.getElementById('calPrev')?.addEventListener('click',()=>{ changeCalendarNav(-1); });
+document.getElementById('calNext')?.addEventListener('click',()=>{ changeCalendarNav(1); });
+document.getElementById('calViewMonth')?.addEventListener('click',()=>setCalendarView('month'));
+document.getElementById('calViewWeek')?.addEventListener('click',()=>setCalendarView('week'));
+document.getElementById('calendarGrid')?.addEventListener('click',e=>{
+  const dayEl=e.target.closest('.calendar-day[data-date]');
+  if(!dayEl) return;
+  const iso=String(dayEl.dataset.date||'');
+  if(!iso) return;
+  calendarState.selectedISO=iso;
+  if(calendarState.view==='month'){
+    openCalendarDayModal(iso);
+  } else {
+    // in week view, keep selection and also allow detail tap
+    openCalendarDayModal(iso);
+  }
+});
+function setCalendarView(view){
+  calendarState.view = view==='week' ? 'week' : 'month';
+  const btnMonth=document.getElementById('calViewMonth');
+  const btnWeek=document.getElementById('calViewWeek');
+  if(btnMonth&&btnWeek){
+    btnMonth.classList.toggle('active',calendarState.view==='month');
+    btnWeek.classList.toggle('active',calendarState.view==='week');
+    btnMonth.setAttribute('aria-selected', calendarState.view==='month' ? 'true' : 'false');
+    btnWeek.setAttribute('aria-selected', calendarState.view==='week' ? 'true' : 'false');
+  }
+  renderCalendar();
+}
+function changeCalendarNav(delta){
+  if(calendarState.view==='week'){
+    const base=dateFromISO(calendarState.selectedISO);
+    const next=addDays(base, delta*7);
+    calendarState.selectedISO=isoFromLocalDate(next);
+    calendarState.year=next.getFullYear();
+    calendarState.month=next.getMonth();
+    renderCalendar();
+    return;
+  }
+  changeMonth(delta);
+}
+function changeMonth(delta){
+  let m = calendarState.month + delta;
+  let y = calendarState.year;
+  if(m<0){m=11;y--}
+  if(m>11){m=0;y++}
+  calendarState.month=m;calendarState.year=y;
+  // keep selected day within month for title/detail
+  const sel=dateFromISO(calendarState.selectedISO);
+  const nextSel=new Date(y,m,Math.min(sel.getDate(), new Date(y,m+1,0).getDate()));
+  calendarState.selectedISO=isoFromLocalDate(nextSel);
+  renderCalendar();
+}
+function renderCalendar(){
+  const grid = document.getElementById('calendarGrid');
+  const title = document.getElementById('calendarTitle');
+  const legend = document.getElementById('calendarLegend');
+  if(!grid||!title) return;
+  if(calendarState.view==='week'){
+    renderCalendarWeek(grid,title,legend);
+  } else {
+    renderCalendarMonth(grid,title,legend);
+  }
+}
+
+function renderCalendarMonth(grid,title,legend){
+  const y = calendarState.year; const m = calendarState.month;
+  const first = new Date(y,m,1);
+  const last = new Date(y,m+1,0);
+  const startWeekDay = (first.getDay()+6)%7; // Mon=0
+  const days = [];
+  for(let i=0;i<startWeekDay;i++) days.push({outside:true});
+  for(let d=1;d<=last.getDate();d++) days.push({date:new Date(y,m,d)});
+  while(days.length%7!==0) days.push({outside:true});
+  title.textContent = first.toLocaleString('es-ES',{month:'long',year:'numeric'});
+  if(legend) legend.innerHTML = `<span class="cal-dot cal-task"></span> Tareas: punto verde · Hábitos: emoji + color por tipo`;
+  grid.innerHTML = days.map(cell=>{
+    if(cell.outside) return `<div class="calendar-day outside"></div>`;
+    const date = cell.date;
+    const iso = isoFromLocalDate(date);
+    const dayNum = date.getDate();
+    const events = collectEventsForISO(iso);
+    const markers=[];
+    const MAX=6;
+    events.slice(0,MAX).forEach(e=>{
+      if(e.type==='task'){
+        markers.push(`<span class="cal-marker task" title="${escapeHTML(e.title)}"></span>`);
+      } else {
+        const cat=escapeHTML(e.category||'habitos');
+        const emoji=escapeHTML(getHabitCategoryEmoji(e.category||'habitos'));
+        markers.push(`<span class="cal-marker habit cat-${cat}" title="${escapeHTML(e.title)}">${emoji}</span>`);
+      }
+    });
+    if(events.length>MAX){
+      markers.push(`<span class="cal-more">+${events.length-MAX}</span>`);
+    }
+    const markersHtml = markers.length ? `<div class="calendar-markers">${markers.join('')}</div>` : '';
+    return `<div class="calendar-day" data-date="${iso}"><div class="date">${dayNum}</div>${markersHtml}</div>`;
+  }).join('');
+}
+
+function renderCalendarWeek(grid,title,legend){
+  const selected=dateFromISO(calendarState.selectedISO);
+  const start=startOfWeekMonday(selected);
+  const end=addDays(start,6);
+  const fmt=(d)=>d.toLocaleDateString('es-ES',{day:'numeric',month:'short'});
+  title.textContent = `${fmt(start)} – ${fmt(end)}`;
+  if(legend) legend.innerHTML = `<span class="cal-dot cal-task"></span> Tareas en verde · Hábitos con emoji + color`;
+  const days=Array.from({length:7},(_,i)=>addDays(start,i));
+  grid.innerHTML = days.map(date=>{
+    const iso=isoFromLocalDate(date);
+    const dayNum=date.getDate();
+    const events=collectEventsForISO(iso);
+    const evHtml = events.slice(0,6).map(e=>{
+      const titleSafe=escapeHTML(e.title);
+      if(e.type==='habit'){
+        const cat=escapeHTML(e.category||'habitos');
+        const emoji=escapeHTML(getHabitCategoryEmoji(e.category||'habitos'));
+        return `<span class="calendar-event habit cat-${cat} ${e.done?'done':''}" title="${titleSafe}"><span class="ev-emoji">${emoji}</span>${titleSafe}</span>`;
+      }
+      return `<span class="calendar-event task ${e.done?'done':''}" title="${titleSafe}"><span class="ev-dot"></span>${titleSafe}</span>`;
+    }).join('');
+    return `<div class="calendar-day" data-date="${iso}"><div class="date">${dayNum}</div>${evHtml}</div>`;
+  }).join('');
+}
+
+function openCalendarDayModal(iso){
+  const titleEl=document.getElementById('calendarDayTitle');
+  const listEl=document.getElementById('calendarDayList');
+  const overlay=document.getElementById('calendarDayModal');
+  if(!titleEl||!listEl||!overlay) return;
+  const d=dateFromISO(iso);
+  titleEl.textContent = `📅 ${d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}`;
+  const events=collectEventsForISO(iso);
+  const habitLabel=(cat)=>habitCategoryLabels[cat]||'General';
+  listEl.innerHTML = events.length ? events.map(e=>{
+    if(e.type==='task'){
+      return `<div class="cal-detail-item ${e.done?'done':''}"><span class="cal-detail-dot task"></span><div style="flex:1;min-width:0"><div class="cal-detail-name">${escapeHTML(e.title)}</div><div class="cal-detail-meta">Tarea</div></div></div>`;
+    }
+    const emoji=escapeHTML(getHabitCategoryEmoji(e.category||'habitos'));
+    const cat=escapeHTML(e.category||'habitos');
+    return `<div class="cal-detail-item ${e.done?'done':''}"><span class="cal-detail-emoji">${emoji}</span><div style="flex:1;min-width:0"><div class="cal-detail-name">${escapeHTML(e.title)}</div><div class="cal-detail-meta">Hábito · ${escapeHTML(habitLabel(cat))}</div></div></div>`;
+  }).join('') : `<div class="task-meta" style="padding:10px 2px">No tienes hábitos ni tareas ese día.</div>`;
+  overlay.classList.add('open');
+}
+
+// Re-render calendar when data changes
+const originalRenderHabits = renderHabits;
+renderHabits = function(){ originalRenderHabits(); renderCalendar(); };
+const origLoad = loadVioraData;
+loadVioraData = async function(){ await origLoad(); renderCalendar(); };
 
 // ── TASKS ─────────────────────────────────────────────
 function taskHTML(t){
@@ -1791,16 +2264,19 @@ function renderHabits(){
     const needsPhoto=h.requiresPhoto&&!h.verified;
     const photoBtn=needsPhoto?`<button class="task-photo-btn" type="button" data-habit-id="${hid}" title="Verificar con foto" onclick="openHabitPhotoModal('${hid}')"><i class="fa fa-camera"></i><span>Verificar</span></button>`:'';
     const verBadge=h.requiresPhoto?(h.verified?'<span class="task-verify-badge"><i class="fa fa-check"></i> verificado</span>':''):'';
-    return `<div class="task-item${h.done?' done':''}" id="habit-${hid}">
+    const scheduleSummary = h.period==='semanal' && Array.isArray(h.week) ? formatHabitWeekSummary(h.week) : '';
+  const scheduleText = scheduleSummary ? `${h.period} · ${scheduleSummary}` : h.period;
+  return `<div class="task-item${h.done?' done':''}" id="habit-${hid}">
       <div class="task-check${h.done?' done':''}" onclick="addHabitProgress('${hid}')">${h.done?'<i class="fa fa-check"></i>':'<i class="fa fa-plus"></i>'}</div>
       <div class="task-body">
         <div class="task-name${h.done?' done':''}">${escapeHTML(h.name)}</div>
-        <div class="task-meta">${h.current}/${h.target} ${escapeHTML(h.unit)} · ${h.period}</div>
+        <div class="task-meta">${h.current}/${h.target} ${escapeHTML(h.unit)} · ${escapeHTML(scheduleText)}</div>
         <div style="height:4px;border-radius:2px;background:var(--bg3);margin-top:6px;overflow:hidden"><div style="height:100%;width:${progress}%;background:var(--amber);transition:width 0.3s ease"></div></div>
       </div>
       <div class="task-right">
         <span class="tag tag-cat-${escapeHTML(h.category)}">${catLabel}</span>
         ${verBadge}${photoBtn}
+        <button class="habit-edit-btn" type="button" onclick="openEditHabitModal('${hid}')" title="Editar hábito"><i class="fa fa-pen"></i></button>
       </div>
     </div>`;
   }).join('') : '<div class="task-meta" style="padding:18px">Crea tu primer hábito.</div>';
@@ -1830,31 +2306,88 @@ function openHabitPhotoModal(id){
   state.photoModalMode='habit';
   document.getElementById('photoModal')?.classList.add('open');
 }
-function openAddHabitModal(){document.getElementById('addHabitModal').classList.add('open')}
+window.openAddHabitModal = function(){
+  editingHabitId = null;
+  document.getElementById('addHabitModal')?.classList.add('open');
+  const title = document.querySelector('#addHabitModal .modal-title');
+  const primary = document.querySelector('#addHabitModal .btn-primary');
+  if(title) title.textContent = '🔥 Nuevo Hábito';
+  if(primary) primary.textContent = 'Crear hábito';
+  document.getElementById('newHabitName').value = '';
+  document.getElementById('newHabitCategory').value = 'habitos';
+  document.getElementById('newHabitPeriod').value = 'diaria';
+  document.getElementById('newHabitTarget').value = '';
+  document.getElementById('newHabitUnit').value = '';
+  setHabitWeekSelection([true,false,true,false,true,false,false]);
+  updateHabitWeekVisibility();
+};
+window.openEditHabitModal = function(id){
+  const habit = state.habits.find(x=>String(x.id)===String(id));
+  if(!habit) return;
+  editingHabitId = String(id);
+  document.getElementById('addHabitModal')?.classList.add('open');
+  const title = document.querySelector('#addHabitModal .modal-title');
+  const primary = document.querySelector('#addHabitModal .btn-primary');
+  if(title) title.textContent = '✏️ Editar hábito';
+  if(primary) primary.textContent = 'Guardar cambios';
+  document.getElementById('newHabitName').value = habit.name || '';
+  document.getElementById('newHabitCategory').value = habit.category || 'habitos';
+  document.getElementById('newHabitPeriod').value = habit.period || 'diaria';
+  document.getElementById('newHabitTarget').value = habit.target>0?String(habit.target):'';
+  document.getElementById('newHabitUnit').value = habit.unit || 'veces';
+  setHabitWeekSelection(Array.isArray(habit.week) ? habit.week : [true,false,true,false,true,false,false]);
+  updateHabitWeekVisibility();
+};
+document.getElementById('newHabitPeriod')?.addEventListener('change', updateHabitWeekVisibility);
+document.querySelectorAll('#habitWeekSelector .weekday-pill').forEach(btn=>btn.addEventListener('click',()=>{
+  btn.classList.toggle('active');
+  updateHabitWeekSummary();
+}));
 async function addHabit(){
   const name=document.getElementById('newHabitName').value.trim();
   if(!name){showToast('Escribe el nombre del hábito','error');return}
   const targetVal=document.getElementById('newHabitTarget').value;
+  const period=document.getElementById('newHabitPeriod').value;
   const h={
     name,
     category:document.getElementById('newHabitCategory').value,
-    period:document.getElementById('newHabitPeriod').value,
+    period,
     target:targetVal&&!isNaN(targetVal)?Number(targetVal):1,
     unit:document.getElementById('newHabitUnit').value.trim()||'veces',
   };
+  if(period==='semanal'){
+    const weekSelection = getHabitWeekSelection();
+    if(!weekSelection.some(Boolean)){
+      setHabitWeekSelection([true,false,true,false,true,false,false]);
+      h.week = [true,false,true,false,true,false,false];
+    } else {
+      h.week = weekSelection;
+    }
+  }
   try{
-    const response=await apiFetch(`${API}/habits`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(h)});
+    const url = editingHabitId ? `${API}/habits/${editingHabitId}` : `${API}/habits`;
+    const method = editingHabitId ? 'PUT' : 'POST';
+    const response=await apiFetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(h)});
     const raw=await response.text();
     let payload={};
     try{payload=JSON.parse(raw||'{}')}catch(_e){}
     if(!response.ok||!payload.success)throw new Error(payload.error||raw||`Error ${response.status}`);
-    state.habits.push(normalizeHabit(apiData(payload,h)));
-    closeModal('addHabitModal');renderHabits();updateKPIs();showToast('Hábito creado 🔥','success');
+    const normalized = normalizeHabit(apiData(payload.data||payload||h));
+    if(editingHabitId){
+      const index=state.habits.findIndex(x=>String(x.id)===String(editingHabitId));
+      if(index!==-1) state.habits[index]=normalized;
+      showToast('Hábito actualizado','success');
+    } else {
+      state.habits.push(normalized);
+      showToast('Hábito creado 🔥','success');
+    }
+    closeModal('addHabitModal');renderHabits();updateKPIs();
     document.getElementById('newHabitName').value='';
     document.getElementById('newHabitTarget').value='';
     document.getElementById('newHabitUnit').value='';
+    editingHabitId = null;
   }catch(err){
-    showToast(err.message||'No pude crear el hábito','error');
+    showToast(err.message||'No pude guardar el hábito','error');
   }
 }
 
@@ -1897,6 +2430,9 @@ function setFinType(t){
   document.getElementById('finTypeExpense').style.cssText=t==='expense'?'padding:10px;border-radius:var(--r-sm);background:var(--red-dim);color:var(--red);font-weight:500;font-size:13px;border:1.5px solid var(--red)':'padding:10px;border-radius:var(--r-sm);background:var(--bg2);color:var(--txt3);font-weight:500;font-size:13px;border:0.5px solid var(--border)';
 }
 function openAddFinModal(){document.getElementById('addFinModal').classList.add('open');setFinType('income')}
+
+// (listeners ya están registrados arriba en la sección de hábitos)
+
 async function addFinance(){
   const name=document.getElementById('newFinName').value.trim();
   const amount=parseInt(document.getElementById('newFinAmount').value);

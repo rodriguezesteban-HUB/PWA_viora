@@ -320,6 +320,18 @@ def map_habit_row(row, week=None):
     category = _normalize_habit_category(row.get("category"))
     target = float(row.get("target", 1) or 1)
     current = float(row.get("current", target if row.get("done") else 0) or 0)
+    saved_week = row.get("week")
+    if isinstance(saved_week, str):
+        try:
+            saved_week = json.loads(saved_week)
+        except Exception:
+            saved_week = None
+    if not isinstance(saved_week, list):
+        saved_week = None
+    if isinstance(saved_week, list) and len(saved_week) == 7:
+        saved_week = [bool(x) for x in saved_week]
+    else:
+        saved_week = None
     return {
         "id": row.get("id"),
         "name": row.get("name"),
@@ -329,6 +341,7 @@ def map_habit_row(row, week=None):
         "current": current,
         "unit": row.get("unit", "veces"),
         "done": bool(row.get("done", False)),
+        "week": saved_week,
         "requiresPhoto": category == "gym",
         "verified": bool(row.get("verified", False)),
         "createdAt": row.get("created_at"),
@@ -1390,6 +1403,8 @@ def create_habit():
             "requires_photo": requires_photo,
             "verified": False,
         }
+        if isinstance(body.get("week"), list):
+            payload["week"] = [bool(x) for x in body.get("week")[:7]] + [False] * max(0, 7 - len(body.get("week")))
         try:
             res = supabase.table(ROUTINES_TABLE).insert(payload).execute()
             row = (res.data or [payload])[0]
@@ -1410,10 +1425,65 @@ def create_habit():
         "verified": False,
         "createdAt": now_str(),
     }
+    if isinstance(body.get("week"), list):
+        habit["week"] = [bool(x) for x in body.get("week")[:7]] + [False] * max(0, 7 - len(body.get("week")))
     habits = read_json(HABITS_FILE, [])
     habits.append(habit)
     write_json(HABITS_FILE, habits)
     return ok(habit, "Hábito creado")
+
+@app.route("/api/habits/<habit_id>", methods=["PUT"])
+def update_habit(habit_id):
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return err("El campo 'name' es requerido")
+    category = _normalize_habit_category(body.get("category") or body.get("cat"))
+    period = body.get("period", "diaria")
+    target = float(body.get("target", 1) or 1)
+    unit = body.get("unit", "veces")
+    week = body.get("week")
+    if isinstance(week, str):
+        try:
+            week = json.loads(week)
+        except Exception:
+            week = None
+    if isinstance(week, list):
+        week = [bool(x) for x in week[:7]] + [False] * max(0, 7 - len(week))
+    else:
+        week = None
+
+    if SUPABASE_ENABLED and supabase:
+        try:
+            payload = {
+                "name": name,
+                "category": category,
+                "period": period,
+                "target": target,
+                "unit": unit,
+            }
+            if week is not None:
+                payload["week"] = week
+            res = supabase.table(ROUTINES_TABLE).update(payload).eq("id", habit_id).eq("user_id", get_current_user_id()).execute()
+            if not res.data:
+                return err("Hábito no encontrado", 404)
+            return ok(map_habit_row(res.data[0]), "Hábito actualizado")
+        except Exception as e:
+            return err(f"Error Supabase: {str(e)}", 502)
+
+    habits = read_json(HABITS_FILE, [])
+    habit = next((h for h in habits if h["id"] == habit_id), None)
+    if not habit:
+        return err("Hábito no encontrado", 404)
+    habit["name"] = name
+    habit["category"] = category
+    habit["period"] = period
+    habit["target"] = target
+    habit["unit"] = unit
+    if week is not None:
+        habit["week"] = week
+    write_json(HABITS_FILE, habits)
+    return ok(map_habit_row(habit), "Hábito actualizado")
 
 @app.route("/api/habits/<habit_id>", methods=["DELETE"])
 def delete_habit(habit_id):
@@ -1586,6 +1656,9 @@ def log_habit(habit_id):
     habit = next((h for h in habits if h["id"] == habit_id), None)
     if not habit:
         return err("Hábito no encontrado", 404)
+
+    if not isinstance(habit.get("week"), list) or len(habit.get("week")) != 7:
+        habit["week"] = [False] * 7
 
     habit["week"][int(day)] = done
     habit["streak"] = sum(1 for d in habit["week"] if d)
