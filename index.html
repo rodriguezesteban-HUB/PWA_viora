@@ -1403,7 +1403,7 @@ img{display:block;max-width:100%}
       </div>
       <div class="verify-result" id="verifyResult"></div>
       <button class="btn-primary" id="verifyBtn" onclick="verifyPhoto()" style="display:none">
-        <i class="fa fa-wand-magic-sparkles"></i> Verificar gym con IA
+        <span style="font-weight:900;color:#000;font-size:15px">🐝</span> Verificar gym con IA
       </button>
       <button class="btn-secondary" onclick="closeModal('photoModal')">Cancelar</button>
     </div>
@@ -1631,12 +1631,19 @@ function updateClock(){
   document.getElementById('clock').textContent=`${h}:${m}`;
 }
 setInterval(updateClock,10000);updateClock();
+function getTodayWeekIndex(){
+  return (new Date().getDay()+6)%7;
+}
+function getTodayKey(){
+  return new Date().toISOString().slice(0,10);
+}
 
 // ── KPIs ──────────────────────────────────────────────
 function updateKPIs(){
   const done=state.tasks.filter(t=>t.done).length;
   const total=state.tasks.length;
-  const habitsDone=state.habits.filter(h=>Array.isArray(h.week)&&h.week[6]).length;
+  const todayIndex=getTodayWeekIndex();
+  const habitsDone=state.habits.filter(h=>Array.isArray(h.week)&&h.week[todayIndex]).length;
   const habitsTotal=state.habits.length;
   const income=state.finances.filter(f=>f.type==='income').reduce((sum,f)=>sum+Number(f.amount||0),0);
   const expense=state.finances.filter(f=>f.type==='expense').reduce((sum,f)=>sum+Number(f.amount||0),0);
@@ -1730,7 +1737,8 @@ function getCompletedDailyMissions(){
   const dailyTasks=state.tasks.filter(t=>t.period==='diaria');
   const taskTotal=dailyTasks.length||state.tasks.length;
   const taskDone=dailyTasks.length?dailyTasks.filter(t=>t.done).length:state.tasks.filter(t=>t.done).length;
-  const habitsToday=state.habits.filter(h=>Array.isArray(h.week)&&h.week[6]).length;
+  const todayIndex=getTodayWeekIndex();
+  const habitsToday=state.habits.filter(h=>Array.isArray(h.week)&&h.week[todayIndex]).length;
   return {done:taskDone+habitsToday,total:taskTotal+state.habits.length};
 }
 function renderHomeStreak(){
@@ -1933,6 +1941,23 @@ async function loadVioraData(){
     updateGreeting();
     if(!tasksRes.ok||!tasksPayload.success)throw new Error(tasksPayload.error||'No se pudieron cargar las tareas');
     state.tasks=apiData(tasksPayload,[]).map(normalizeTask);
+    const todayKey=getTodayKey();
+    const lastReset=localStorage.getItem('viora:lastDailyReset');
+    if(lastReset!==todayKey){
+      const dailyDone=state.tasks.filter(t=>t.period==='diaria'&&t.done);
+      dailyDone.forEach(task=>{
+        task.done=false;
+        task.current=0;
+      });
+      localStorage.setItem('viora:lastDailyReset',todayKey);
+      await Promise.all(dailyDone.map(task=>
+        apiFetch(`${API}/tasks/${task.id}/complete`,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({done:false,current:0})
+        }).catch(()=>null)
+      ));
+    }
     if(habitsRes.ok&&habitsPayload.success)state.habits=apiData(habitsPayload,[]).map(normalizeHabit);
     if(financesRes.ok&&financesPayload.success){
       const financesData=apiData(financesPayload,{items:[]});
@@ -2499,17 +2524,35 @@ async function startCamera(){
   video.style.display='none';
   captureBtn.disabled=true;
   try{
-    const stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},
-      audio:false,
-    });
+    let stream;
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{exact:'environment'},width:{ideal:1280},height:{ideal:960}},
+        audio:false,
+      });
+    }catch(_){
+      stream=await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},
+        audio:false,
+      });
+    }
     state.currentPhotoStream=stream;
+    video.setAttribute('playsinline','true');
+    video.setAttribute('autoplay','true');
+    video.setAttribute('muted','true');
     video.srcObject=stream;
-    await video.play();
+    await Promise.race([
+      video.play(),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('play-timeout')),3000))
+    ]);
+    if(video.readyState<2){
+      throw new Error('camera-not-ready');
+    }
     placeholder.style.display='none';
     video.style.display='block';
     captureBtn.disabled=false;
   }catch(err){
+    stopCamera();
     placeholder.innerHTML='<i class="fa fa-triangle-exclamation"></i>No pude abrir la cámara. Revisa el permiso del navegador.';
     captureBtn.disabled=true;
   }
@@ -2528,7 +2571,7 @@ function openPhotoModal(taskId){
   document.getElementById('verifyResult').innerHTML='';
   document.getElementById('verifySpinner').className='verify-spinner';
   document.getElementById('verifyBtn').style.display='none';
-  document.getElementById('verifyBtn').innerHTML='<i class="fa fa-wand-magic-sparkles"></i> Verificar gym con IA';
+  document.getElementById('verifyBtn').innerHTML='<span style="font-weight:900;color:#000;font-size:15px">🐝</span> Verificar gym con IA';
   document.getElementById('captureBtn').style.display='block';
   document.getElementById('captureBtn').disabled=true;
   document.getElementById('retakeBtn').style.display='none';
