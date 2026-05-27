@@ -1370,7 +1370,7 @@ def _habit_is_scheduled_today(row):
     return habit.get("period") == "diaria" or not habit.get("period")
 
 def _completed_habit_count(habits):
-    return sum(1 for h in habits if h.get("done") and _habit_is_scheduled_today(h))
+    return sum(1 for h in habits if h.get("done"))
 
 def _check_bet(habits):
     """Devuelve True si se completaron >= 3 hábitos de hoy y la apuesta estaba activa."""

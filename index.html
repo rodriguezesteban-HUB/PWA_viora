@@ -2533,10 +2533,10 @@ async function addFinance(){
 // ── BET ───────────────────────────────────────────────
 let selectedBetAmount=10000;
 function getBetHabitProgress(){
-  const todayHabits=getTodayHabits();
+  const betHabits=state.habits;
   return {
-    done:todayHabits.filter(h=>h.done).length,
-    total:todayHabits.length,
+    done:betHabits.filter(h=>h.done).length,
+    total:betHabits.length,
     required:3,
   };
 }
