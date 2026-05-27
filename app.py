@@ -72,7 +72,12 @@ load_env_file()
 HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
 HF_ZERO_SHOT_MODEL = os.environ.get("HF_ZERO_SHOT_MODEL", "openai/clip-vit-base-patch32").strip()
 HF_IMAGE_CLASSIFICATION_MODEL = os.environ.get("HF_IMAGE_CLASSIFICATION_MODEL", "microsoft/resnet-50").strip()
-PHOTO_VERIFY_PROVIDER = os.environ.get("VIORA_PHOTO_VERIFY_PROVIDER", "places365").strip().lower()
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+ANTHROPIC_VISION_MODEL = os.environ.get(
+    "ANTHROPIC_VISION_MODEL",
+    os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+).strip()
+PHOTO_VERIFY_PROVIDER = os.environ.get("VIORA_PHOTO_VERIFY_PROVIDER", "auto").strip().lower()
 PHOTO_VERIFY_DEMO = (
     os.environ.get("VIORA_PHOTO_VERIFY_DEMO", "").strip().lower() in {"1", "true", "yes"}
 )
@@ -439,11 +444,69 @@ GYM_IMAGE_CLASSIFICATION_KEYWORDS = [
     "parallel bars",
     "punching bag",
     "medicine ball",
-    "basketball",
-    "volleyball",
-    "racket",
-    "jersey",
+    "weight",
+    "treadmill",
+    "exercise",
 ]
+
+PHOTO_VERIFY_PROVIDER_ALIASES = {
+    "": "auto",
+    "claude": "anthropic",
+    "hf": "huggingface",
+    "hugging-face": "huggingface",
+    "huggingface-zero-shot": "huggingface",
+    "local": "places365",
+}
+
+SUPPORTED_IMAGE_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+def normalize_image_media_type(media_type):
+    cleaned = (media_type or "image/jpeg").split(";", 1)[0].strip().lower()
+    if cleaned == "image/jpg":
+        cleaned = "image/jpeg"
+    return cleaned if cleaned in SUPPORTED_IMAGE_MEDIA_TYPES else "image/jpeg"
+
+def _places365_assets_available():
+    return os.path.exists(PLACES365_WEIGHTS) and os.path.exists(PLACES365_CATEGORIES)
+
+def _photo_provider_order():
+    provider = PHOTO_VERIFY_PROVIDER_ALIASES.get(PHOTO_VERIFY_PROVIDER, PHOTO_VERIFY_PROVIDER)
+    if provider == "auto":
+        order = []
+        if ANTHROPIC_API_KEY:
+            order.append("anthropic")
+        if HF_TOKEN:
+            order.append("huggingface")
+        if _places365_assets_available():
+            order.append("places365")
+        return order or ["anthropic", "huggingface", "places365"]
+    fallback_order = ["anthropic", "huggingface", "places365"]
+    order = [provider] if provider in fallback_order else []
+    return order + [item for item in fallback_order if item not in order]
+
+def _json_error_from_response(result):
+    if not isinstance(result, tuple):
+        return ""
+    response = result[0]
+    try:
+        payload = response.get_json(silent=True) if hasattr(response, "get_json") else {}
+        return str((payload or {}).get("error") or (payload or {}).get("message") or "")
+    except Exception:
+        return ""
+
+def _photo_result_is_provider_error(result):
+    if not isinstance(result, dict):
+        return True
+    reason = str(result.get("reason") or "").lower()
+    detected = " ".join(str(item) for item in (result.get("detectedItems") or [])).lower()
+    return any(marker in reason or marker in detected for marker in [
+        "no disponible",
+        "no instalado",
+        "dependencias",
+        "error interno",
+        "not configured",
+        "no configurado",
+    ])
 
 PLACES365_GYM_SCENES = [
     "gymnasium/indoor",
@@ -580,17 +643,79 @@ def call_places365_scene_classification(image_bytes):
             "mode": "places365-local",
         })
 
-def call_hugging_face_zero_shot(image_b64):
+def _prediction_label_score(item):
+    if isinstance(item, dict):
+        return str(item.get("label", "")), float(item.get("score", 0) or 0)
+    return str(getattr(item, "label", "")), float(getattr(item, "score", 0) or 0)
+
+def _normalize_gym_zero_shot_predictions(predictions):
+    scored = []
+    for item in predictions or []:
+        label, score = _prediction_label_score(item)
+        if label:
+            scored.append({"label": label, "score": score})
+
+    positive = [item for item in scored if item["label"] in GYM_POSITIVE_LABELS]
+    negative = [item for item in scored if item["label"] in GYM_NEGATIVE_LABELS]
+    best_positive = max(positive, key=lambda item: item["score"], default={"label": "", "score": 0})
+    best_negative = max(negative, key=lambda item: item["score"], default={"label": "", "score": 0})
+
+    margin = best_positive["score"] - best_negative["score"]
+    approved = best_positive["score"] >= 0.28 and margin >= 0.06
+    if approved:
+        confidence = round(min(98, max(70, 70 + min(margin, 0.35) / 0.35 * 28)))
+    else:
+        confidence = round(min(69, max(0, best_positive["score"]) / 0.28 * 69))
+
+    detected = [
+        item["label"].replace("a photo of ", "").replace("a photo inside ", "").replace("a photo ", "")
+        for item in positive
+        if item["score"] >= max(0.12, best_positive["score"] * 0.45)
+    ][:4]
+    reason = (
+        "La imagen coincide con contexto de gimnasio."
+        if approved
+        else "No hay suficiente evidencia visual de gimnasio o entrenamiento."
+    )
+    return normalize_photo_verification_result({
+        "approved": approved,
+        "confidence": confidence,
+        "detectedItems": detected or [best_positive["label"] or "sin coincidencias de gym"],
+        "reason": reason,
+        "mode": "huggingface-zero-shot",
+    })
+
+def call_hugging_face_zero_shot(image_bytes, media_type="image/jpeg", image_b64=None):
     if not HF_TOKEN:
         return err("HF_TOKEN no configurado para verificar fotos con Hugging Face", 503)
 
-    api_url = f"https://router.huggingface.co/hf-inference/models/{HF_ZERO_SHOT_MODEL}"
     labels = GYM_POSITIVE_LABELS + GYM_NEGATIVE_LABELS
+    try:
+        from huggingface_hub import InferenceClient
+        client = InferenceClient(
+            provider="hf-inference",
+            api_key=HF_TOKEN,
+            timeout=45,
+        )
+        predictions = client.zero_shot_image_classification(
+            image=image_bytes,
+            candidate_labels=labels,
+            model=HF_ZERO_SHOT_MODEL,
+        )
+        return _normalize_gym_zero_shot_predictions(predictions)
+    except ImportError:
+        pass
+    except Exception as exc:
+        detail = str(exc)[:180]
+        if "not supported" not in detail.lower() and "404" not in detail:
+            return err(f"Error Hugging Face: {detail}", 502)
+
+    api_url = f"https://router.huggingface.co/hf-inference/models/{HF_ZERO_SHOT_MODEL}"
     response = requests.post(
         api_url,
         headers={"Authorization": f"Bearer {HF_TOKEN}"},
         json={
-            "inputs": image_b64,
+            "inputs": image_b64 or base64.b64encode(image_bytes).decode(),
             "parameters": {
                 "candidate_labels": labels,
             },
@@ -617,36 +742,7 @@ def call_hugging_face_zero_shot(image_b64):
     if not isinstance(predictions, list):
         return err("Respuesta inesperada de Hugging Face", 502)
 
-    scored = [
-        {"label": str(item.get("label", "")), "score": float(item.get("score", 0) or 0)}
-        for item in predictions
-        if isinstance(item, dict)
-    ]
-    positive = [item for item in scored if item["label"] in GYM_POSITIVE_LABELS]
-    negative = [item for item in scored if item["label"] in GYM_NEGATIVE_LABELS]
-    best_positive = max(positive, key=lambda item: item["score"], default={"label": "", "score": 0})
-    best_negative = max(negative, key=lambda item: item["score"], default={"label": "", "score": 0})
-
-    confidence = round(best_positive["score"] * 100)
-    approved = best_positive["score"] >= 0.45 and best_positive["score"] >= (best_negative["score"] + 0.12)
-    detected = [
-        item["label"].replace("a photo of ", "").replace("a photo inside ", "").replace("a photo ", "")
-        for item in positive
-        if item["score"] >= 0.18
-    ][:4]
-
-    reason = (
-        "La imagen coincide con contexto de gimnasio."
-        if approved
-        else "No hay suficiente evidencia visual de gimnasio o entrenamiento."
-    )
-    return normalize_photo_verification_result({
-        "approved": approved,
-        "confidence": confidence,
-        "detectedItems": detected or [best_positive["label"]],
-        "reason": reason,
-        "mode": "huggingface",
-    })
+    return _normalize_gym_zero_shot_predictions(predictions)
 
 def call_hugging_face_image_classification(image_bytes, media_type="image/jpeg"):
     if not HF_TOKEN:
@@ -705,6 +801,57 @@ def call_hugging_face_image_classification(image_bytes, media_type="image/jpeg")
         "reason": reason,
         "mode": "huggingface-image-classification",
     })
+
+def call_anthropic_photo_verification(image_b64, media_type="image/jpeg"):
+    if not ANTHROPIC_API_KEY:
+        return err("ANTHROPIC_API_KEY no configurado para verificar fotos con Claude", 503)
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model=ANTHROPIC_VISION_MODEL,
+            max_tokens=300,
+            temperature=0,
+            system=(
+                "Eres un verificador visual estricto para una app de habitos. "
+                "Aprueba solo si la imagen muestra evidencia clara de gimnasio, "
+                "maquinas de ejercicio, pesas, zona de entrenamiento o una persona "
+                "entrenando en ese contexto. No apruebes selfies, habitaciones, "
+                "oficinas, comida, documentos ni escenas ambiguas."
+            ),
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": normalize_image_media_type(media_type),
+                            "data": image_b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": (
+                            "Responde solo JSON valido con este formato: "
+                            "{\"approved\": boolean, \"confidence\": 0-100, "
+                            "\"detectedItems\": [\"item\"], \"reason\": \"texto breve\"}."
+                        ),
+                    },
+                ],
+            }],
+        )
+        text = "\n".join(
+            getattr(block, "text", "")
+            for block in (getattr(response, "content", []) or [])
+            if getattr(block, "text", "")
+        )
+        parsed = extract_json_object(text)
+        parsed["mode"] = "anthropic-vision"
+        return normalize_photo_verification_result(parsed)
+    except Exception as exc:
+        return err(f"Error Claude Vision: {str(exc)[:180]}", 502)
 
 def ok(data=None, msg="ok", **kwargs):
     res = {"success": True, "message": msg}
@@ -1481,7 +1628,7 @@ def verify_habit_photo(habit_id):
 
     body = request.get_json(silent=True) or {}
     image_b64 = body.get("image", "")
-    media_type = body.get("mediaType", "image/jpeg")
+    media_type = normalize_image_media_type(body.get("mediaType", "image/jpeg"))
     image_raw = b""
 
     if not image_b64:
@@ -1490,7 +1637,7 @@ def verify_habit_photo(habit_id):
             return err("Se requiere imagen (campo 'image' en base64 o multipart 'photo')")
         image_raw = file.read()
         image_b64 = base64.b64encode(image_raw).decode()
-        media_type = file.content_type or "image/jpeg"
+        media_type = normalize_image_media_type(file.content_type or "image/jpeg")
     else:
         try:
             image_raw = base64.b64decode(image_b64)
@@ -1500,16 +1647,32 @@ def verify_habit_photo(habit_id):
     if PHOTO_VERIFY_DEMO:
         result = normalize_photo_verification_result({"approved": True, "confidence": 86, "detectedItems": ["modo demo"], "reason": "Modo demo activado.", "mode": "demo"})
     else:
-        if PHOTO_VERIFY_PROVIDER == "places365":
-            result = call_places365_scene_classification(image_raw)
-            if isinstance(result, dict) and result.get("fallback") == "huggingface":
-                result = call_hugging_face_zero_shot(image_b64)
-        else:
-            result = call_hugging_face_zero_shot(image_b64)
-        if isinstance(result, dict) and result.get("fallback") == "image-classification":
-            result = call_hugging_face_image_classification(image_raw, media_type)
-        if isinstance(result, tuple):
-            return result
+        result = None
+        provider_errors = []
+        for provider in _photo_provider_order():
+            if provider == "anthropic":
+                attempt = call_anthropic_photo_verification(image_b64, media_type)
+            elif provider == "huggingface":
+                attempt = call_hugging_face_zero_shot(image_raw, media_type, image_b64)
+                if isinstance(attempt, dict) and attempt.get("fallback") == "image-classification":
+                    attempt = call_hugging_face_image_classification(image_raw, media_type)
+            elif provider == "places365":
+                attempt = call_places365_scene_classification(image_raw)
+            else:
+                continue
+
+            if isinstance(attempt, tuple):
+                provider_errors.append(f"{provider}: {_json_error_from_response(attempt) or 'no disponible'}")
+                continue
+            if provider == "places365" and _photo_result_is_provider_error(attempt):
+                provider_errors.append(f"{provider}: {attempt.get('reason', 'no disponible')}")
+                continue
+            result = attempt
+            break
+
+        if result is None:
+            detail = "; ".join(provider_errors) or "sin proveedor de IA configurado"
+            return err(f"No pude verificar la foto con IA en este deploy: {detail}", 503)
 
     if result.get("approved"):
         if SUPABASE_ENABLED and supabase:

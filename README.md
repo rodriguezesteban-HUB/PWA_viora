@@ -30,12 +30,19 @@ La app ya esta conectada a **Vercel** y puede usar **Supabase** como base de dat
 - `SUPABASE_ANON_KEY` o `SUPABASE_PUBLISHABLE_KEY` (clave publica para Supabase Auth en el navegador)
 - `JWT_SECRET` (requerido para sesiones/login)
 - `VIORA_USER_ID` (opcional, por defecto: `11111111-1111-1111-1111-111111111111`)
+- `VIORA_PHOTO_VERIFY_PROVIDER=auto` (recomendado para deploy)
+- `ANTHROPIC_API_KEY` para verificar fotos con Claude Vision, o `HF_TOKEN` para Hugging Face
+- `ANTHROPIC_VISION_MODEL` opcional si quieres fijar un modelo especifico de vision
 
 Para probar autenticacion sin Google, activa en Supabase `Authentication > Providers > Email`.
 Si quieres que el registro entre de inmediato durante desarrollo, desactiva temporalmente
 `Confirm email`; si lo dejas activo, el usuario debe confirmar el correo antes de iniciar sesion.
 
 En local puedes copiar `.env.example` a `.env` y completar los valores.
+
+Para Vercel, el verificador de fotos no usa el modelo local Places365 por defecto porque
+serverless no incluye esos pesos. En `auto`, Viora intenta primero un proveedor cloud
+configurado (`ANTHROPIC_API_KEY` o `HF_TOKEN`) y deja Places365 como respaldo local.
 
 ### Esquema de base de datos (Supabase)
 
