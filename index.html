@@ -1902,12 +1902,40 @@ function normalizeComment(c){
     canDelete:Boolean(c.canDelete),
   };
 }
+function emptyBetState(){
+  return {
+    active:false,
+    amount:0,
+    completed:false,
+    refunded:false,
+    date:null,
+    selectedAmount:state.bet?.selectedAmount||10000,
+  };
+}
+function betDateKey(bet){
+  const raw=bet?.date||bet?.bet_date||bet?.createdAt||bet?.created_at||'';
+  return raw?String(raw).slice(0,10):null;
+}
+function applyBetState(bet){
+  const selectedAmount=state.bet?.selectedAmount||10000;
+  const incoming=(bet&&typeof bet==='object')?bet:{};
+  const dateKey=betDateKey(incoming);
+  if(!dateKey||dateKey!==getTodayKey()){
+    state.bet={...emptyBetState(),selectedAmount};
+    return;
+  }
+  state.bet={...emptyBetState(),...incoming,selectedAmount};
+}
+function markBetRefunded(){
+  state.bet={...state.bet,active:false,completed:true,refunded:true,date:state.bet?.date||getTodayKey()};
+  renderBet();
+}
 function resetPrivateState(){
   state.user=null;
   state.tasks=[];
   state.habits=[];
   state.finances=[];
-  state.bet={active:false,amount:0,selectedAmount:state.bet?.selectedAmount||10000};
+  state.bet=emptyBetState();
   updateGreeting();
   renderHomeStreak();
   renderProfile();
@@ -2000,7 +2028,7 @@ async function loadVioraData(){
     if(postsRes.ok&&postsPayload.success)state.posts=apiData(postsPayload,[]).map(normalizePost);
     if(betRes.ok&&betPayload.success){
       const bet=apiData(betPayload,{});
-      state.bet={...state.bet,...bet,selectedAmount:state.bet.selectedAmount};
+      applyBetState(bet);
       renderBet();
     }
   }catch(err){
@@ -2356,8 +2384,10 @@ async function addHabitProgress(id){
     const data=apiData(p,{});
     Object.assign(h,normalizeHabit(data.habit||h));
     if(data.betWon){
-      state.bet={...state.bet,active:false,completed:true,refunded:true};
-      showToast('Apuesta completada. Devolución en camino 💸','success');
+      markBetRefunded();
+      showToast('Muy bien, plata devuelta','success');
+      renderHabits();updateKPIs();
+      return;
     }
     renderHabits();updateKPIs();
   }catch(e){
@@ -2533,7 +2563,7 @@ async function addFinance(){
 // ── BET ───────────────────────────────────────────────
 let selectedBetAmount=10000;
 function getBetHabitProgress(){
-  const betHabits=state.habits;
+  const betHabits=getTodayHabits();
   return {
     done:betHabits.filter(h=>h.done).length,
     total:betHabits.length,
@@ -2551,15 +2581,15 @@ function renderBet(){
   const left=Math.max(0,required-done);
   const fill=Math.min(Math.round(done/required*100),100);
   document.getElementById('betAmountDisplay').textContent=amount?'$'+amount.toLocaleString('es-CO'):'$0';
-  document.getElementById('betStatusBadge').textContent=completed?'Ganada':(active?'Activa':'Sin apuesta');
+  document.getElementById('betStatusBadge').textContent=completed?'Devuelta':(active?'Activa':'Sin apuesta');
   document.getElementById('betStatusBadge').className='bet-status '+((active||completed)?'active':'none');
   document.getElementById('betProgressFill').style.width=fill+'%';
   document.getElementById('betProgressText').textContent=`${Math.min(done,required)} de ${required} hábitos`;
   document.getElementById('betRemainingText').textContent=completed
-    ? 'completada'
+    ? 'plata devuelta'
     : (left===1?'1 falta':`${left} faltan`);
   document.getElementById('betSubText').textContent=completed
-    ? 'Reto cumplido: devolución en camino'
+    ? 'Muy bien, plata devuelta'
     : 'Completa 3 hábitos hoy y te devolvemos tu plata';
 }
 function openBetModal(){document.getElementById('betModal').classList.add('open')}
@@ -2574,7 +2604,7 @@ async function confirmBet(){
     const response=await apiFetch(`${API}/bet`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:selectedBetAmount})});
     const payload=await response.json().catch(()=>({}));
     if(!response.ok||!payload.success)throw new Error(payload.error||'No se pudo activar la apuesta');
-    state.bet={...state.bet,...apiData(payload,{})};
+    applyBetState(apiData(payload,{}));
     closeModal('betModal');
     renderBet();
     showToast('Apuesta activada. ¡A darle duro!','amber');
@@ -2740,7 +2770,9 @@ async function verifyPhoto(){
         const h=state.habits.find(x=>x.id===state.currentPhotoTask);
         if(h){h.verified=true;h.done=true;h.current=h.target;}
         if(result.betWon){
-          state.bet={...state.bet,active:false,completed:true,refunded:true};
+          markBetRefunded();
+          setTimeout(()=>{closeModal('photoModal');renderHabits();updateKPIs();showToast('Muy bien, plata devuelta','success');},1800);
+          return;
         }
         setTimeout(()=>{closeModal('photoModal');renderHabits();updateKPIs();showToast('Hábito verificado por IA ✅','success');},1800);
       } else {

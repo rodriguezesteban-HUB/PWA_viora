@@ -450,6 +450,15 @@ def map_bet_row(row):
         "cancelledAt": row.get("cancelled_at") or row.get("cancelledAt"),
     }
 
+def bet_date_key(row):
+    if not row:
+        return None
+    raw = row.get("bet_date") or row.get("date")
+    return str(raw)[:10] if raw else None
+
+def is_today_bet(row):
+    return bet_date_key(row) == today_str()
+
 def extract_json_object(text):
     cleaned = (text or "").replace("```json", "").replace("```", "").strip()
     if not cleaned:
@@ -1432,7 +1441,7 @@ def _habit_is_scheduled_today(row):
     return habit.get("period") == "diaria" or not habit.get("period")
 
 def _completed_habit_count(habits):
-    return sum(1 for h in habits if h.get("done"))
+    return sum(1 for h in habits if _habit_is_scheduled_today(h) and map_habit_row(h).get("done"))
 
 def _check_bet(habits):
     """Devuelve True si se completaron >= 3 hábitos de hoy y la apuesta estaba activa."""
@@ -1962,6 +1971,15 @@ def get_bet():
         try:
             res = supabase.table("bets").select("*").eq("user_id", get_current_user_id()).order("created_at", desc=True).limit(1).execute()
             row = res.data[0] if res.data else None
+            if row and not is_today_bet(row):
+                if row.get("active") and not row.get("completed"):
+                    supabase.table("bets").update({
+                        "active": False,
+                        "completed": False,
+                        "refunded": False,
+                        "cancelled_at": now_str(),
+                    }).eq("id", row["id"]).execute()
+                return ok({})
             if row and row.get("active") and not row.get("completed"):
                 habits_res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", get_current_user_id()).execute()
                 if _check_bet(habits_res.data or []):
@@ -1972,6 +1990,14 @@ def get_bet():
             return err(f"Error Supabase: {str(e)}", 502)
 
     bet = read_json(BET_FILE, {})
+    if bet and not is_today_bet(bet):
+        if bet.get("active") and not bet.get("completed"):
+            bet["active"] = False
+            bet["completed"] = False
+            bet["refunded"] = False
+            bet["cancelledAt"] = now_str()
+            write_json(BET_FILE, bet)
+        return ok({})
     if bet.get("active") and not bet.get("completed"):
         _check_bet(read_json(HABITS_FILE, []))
         bet = read_json(BET_FILE, bet)
@@ -2042,6 +2068,8 @@ def bet_status():
         try:
             bet_res = supabase.table("bets").select("*").eq("user_id", get_current_user_id()).order("created_at", desc=True).limit(1).execute()
             bet_row = bet_res.data[0] if bet_res.data else None
+            if bet_row and not is_today_bet(bet_row):
+                bet_row = None
             habits_res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", get_current_user_id()).execute()
             done = _completed_habit_count(habits_res.data or [])
 
@@ -2055,6 +2083,8 @@ def bet_status():
             return err(f"Error Supabase: {str(e)}", 502)
 
     bet   = read_json(BET_FILE, {})
+    if bet and not is_today_bet(bet):
+        bet = {}
     habits = read_json(HABITS_FILE, [])
     done  = _completed_habit_count(habits)
 
