@@ -1323,9 +1323,7 @@ def complete_task(task_id):
             new_done = body.get("done", not current.get("done", False))
             upd = supabase.table(TASKS_TABLE).update({"done": bool(new_done)}).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
             task = map_task_row(upd.data[0]) if upd.data else map_task_row({**current, "done": new_done})
-            tasks_res = supabase.table(TASKS_TABLE).select("done").eq("user_id", get_current_user_id()).execute()
-            bet_check = _check_bet(tasks_res.data or [])
-            return ok({"task": task, "betWon": bet_check}, "Estado actualizado")
+            return ok({"task": task, "betWon": False}, "Estado actualizado")
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
 
@@ -1335,8 +1333,7 @@ def complete_task(task_id):
         return err("Tarea no encontrada", 404)
     task["done"] = body.get("done", not task.get("done", False))
     write_json(TASKS_FILE, tasks)
-    bet_check = _check_bet(tasks)
-    return ok({"task": task, "betWon": bet_check}, "Estado actualizado")
+    return ok({"task": task, "betWon": False}, "Estado actualizado")
 
 @app.route("/api/tasks/<task_id>/add", methods=["POST"])
 def add_task_progress(task_id):
@@ -1353,9 +1350,7 @@ def add_task_progress(task_id):
             current = res.data[0]
             upd = supabase.table(TASKS_TABLE).update({"done": True}).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
             task = map_task_row(upd.data[0]) if upd.data else map_task_row({**current, "done": True})
-            tasks_res = supabase.table(TASKS_TABLE).select("done").eq("user_id", get_current_user_id()).execute()
-            bet_check = _check_bet(tasks_res.data or [])
-            return ok({"task": task, "completed": True, "betWon": bet_check}, "Tarea completada")
+            return ok({"task": task, "completed": True, "betWon": False}, "Tarea completada")
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
 
@@ -1365,20 +1360,30 @@ def add_task_progress(task_id):
         return err("Tarea no encontrada", 404)
     task["done"] = True
     write_json(TASKS_FILE, tasks)
-    bet_check = _check_bet(tasks)
-    return ok({"task": map_task_row(task), "completed": True, "betWon": bet_check}, "Tarea completada")
+    return ok({"task": map_task_row(task), "completed": True, "betWon": False}, "Tarea completada")
 
-def _check_bet(tasks):
-    """Devuelve True si se completaron >= 3 tareas y la apuesta estaba activa."""
+def _habit_is_scheduled_today(row):
+    habit = map_habit_row(row)
+    week = habit.get("week")
+    if isinstance(week, list) and len(week) == 7:
+        return bool(week[date.today().weekday()])
+    return habit.get("period") == "diaria" or not habit.get("period")
+
+def _completed_habit_count(habits):
+    return sum(1 for h in habits if h.get("done") and _habit_is_scheduled_today(h))
+
+def _check_bet(habits):
+    """Devuelve True si se completaron >= 3 hábitos de hoy y la apuesta estaba activa."""
     if SUPABASE_ENABLED and supabase:
         try:
             bet_res = supabase.table("bets").select("*").eq("user_id", get_current_user_id()).order("created_at", desc=True).limit(1).execute()
             bet_row = bet_res.data[0] if bet_res.data else None
             if not bet_row or not bet_row.get("active") or bet_row.get("completed"):
                 return False
-            done_count = sum(1 for t in tasks if t.get("done"))
+            done_count = _completed_habit_count(habits)
             if done_count >= 3:
                 supabase.table("bets").update({
+                    "active": False,
                     "completed": True,
                     "refunded": True,
                     "completed_at": now_str(),
@@ -1391,8 +1396,9 @@ def _check_bet(tasks):
     bet = read_json(BET_FILE, {})
     if not bet.get("active") or bet.get("completed"):
         return False
-    done_count = sum(1 for t in tasks if t.get("done"))
+    done_count = _completed_habit_count(habits)
     if done_count >= 3:
+        bet["active"] = False
         bet["completed"] = True
         bet["refunded"]  = True   # Mock: en producción llamar PSE/Wompi aquí
         bet["completedAt"] = now_str()
@@ -1591,7 +1597,9 @@ def complete_habit(habit_id):
             new_done = new_current >= mapped["target"]
             upd = supabase.table(ROUTINES_TABLE).update({"current": new_current, "done": new_done}).eq("id", habit_id).eq("user_id", get_current_user_id()).execute()
             habit = map_habit_row(upd.data[0]) if upd.data else map_habit_row({**current, "current": new_current, "done": new_done})
-            return ok({"habit": habit, "completed": new_done}, "Progreso guardado")
+            habits_res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", get_current_user_id()).execute()
+            bet_check = _check_bet(habits_res.data or [])
+            return ok({"habit": habit, "completed": new_done, "betWon": bet_check}, "Progreso guardado")
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
 
@@ -1606,7 +1614,8 @@ def complete_habit(habit_id):
     habit["current"] = min(float(habit.get("current", 0) or 0) + amount, mapped["target"])
     habit["done"] = habit["current"] >= mapped["target"]
     write_json(HABITS_FILE, habits)
-    return ok({"habit": map_habit_row(habit), "completed": habit["done"]}, "Progreso guardado")
+    bet_check = _check_bet(habits)
+    return ok({"habit": map_habit_row(habit), "completed": habit["done"], "betWon": bet_check}, "Progreso guardado")
 
 @app.route("/api/habits/<habit_id>/verify-photo", methods=["POST"])
 def verify_habit_photo(habit_id):
@@ -1679,6 +1688,7 @@ def verify_habit_photo(habit_id):
             detail = "; ".join(provider_errors) or "sin proveedor de IA configurado"
             return err(f"No pude verificar la foto con IA en este deploy: {detail}", 503)
 
+    bet_won = False
     if result.get("approved"):
         if SUPABASE_ENABLED and supabase:
             try:
@@ -1688,6 +1698,8 @@ def verify_habit_photo(habit_id):
                     {"done"},
                     {"id": habit_id, "user_id": get_current_user_id()},
                 )
+                habits_res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", get_current_user_id()).execute()
+                bet_won = _check_bet(habits_res.data or [])
             except Exception as e:
                 return err(f"Error Supabase: {str(e)}", 502)
         else:
@@ -1699,7 +1711,9 @@ def verify_habit_photo(habit_id):
                 h["done"] = True
                 h["current"] = mapped_habit["target"]
                 write_json(HABITS_FILE, habits)
+                bet_won = _check_bet(habits)
 
+    result["betWon"] = bet_won
     return ok(result, "Verificación completada")
 
 @app.route("/api/habits/<habit_id>/log", methods=["POST"])
@@ -1888,11 +1902,20 @@ def get_bet():
         try:
             res = supabase.table("bets").select("*").eq("user_id", get_current_user_id()).order("created_at", desc=True).limit(1).execute()
             row = res.data[0] if res.data else None
+            if row and row.get("active") and not row.get("completed"):
+                habits_res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", get_current_user_id()).execute()
+                if _check_bet(habits_res.data or []):
+                    refreshed = supabase.table("bets").select("*").eq("id", row.get("id")).limit(1).execute()
+                    row = refreshed.data[0] if refreshed.data else row
             return ok(map_bet_row(row))
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
 
-    return ok(read_json(BET_FILE, {}))
+    bet = read_json(BET_FILE, {})
+    if bet.get("active") and not bet.get("completed"):
+        _check_bet(read_json(HABITS_FILE, []))
+        bet = read_json(BET_FILE, bet)
+    return ok(bet)
 
 @app.route("/api/bet", methods=["POST"])
 def create_bet():
@@ -1926,6 +1949,10 @@ def create_bet():
             }
             res = supabase.table("bets").insert(payload).execute()
             row = (res.data or [payload])[0]
+            habits_res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", get_current_user_id()).execute()
+            if _check_bet(habits_res.data or []):
+                refreshed = supabase.table("bets").select("*").eq("id", row.get("id")).limit(1).execute()
+                row = (refreshed.data or [row])[0]
             return ok(map_bet_row(row), f"Apuesta de ${amount:,.0f} COP activada (mock PSE)")
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
@@ -1944,6 +1971,8 @@ def create_bet():
         "createdAt": now_str(),
     }
     write_json(BET_FILE, bet)
+    _check_bet(read_json(HABITS_FILE, []))
+    bet = read_json(BET_FILE, bet)
     return ok(bet, f"Apuesta de ${amount:,.0f} COP activada (mock PSE)")
 
 @app.route("/api/bet/status", methods=["GET"])
@@ -1953,27 +1982,27 @@ def bet_status():
         try:
             bet_res = supabase.table("bets").select("*").eq("user_id", get_current_user_id()).order("created_at", desc=True).limit(1).execute()
             bet_row = bet_res.data[0] if bet_res.data else None
-            tasks_res = supabase.table(TASKS_TABLE).select("done").eq("user_id", get_current_user_id()).execute()
-            done = sum(1 for t in (tasks_res.data or []) if t.get("done"))
+            habits_res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", get_current_user_id()).execute()
+            done = _completed_habit_count(habits_res.data or [])
 
             return ok({
                 "bet": map_bet_row(bet_row),
-                "tasksCompleted": done,
-                "tasksRequired": 3,
-                "won": done >= 3 and (bet_row or {}).get("active", False),
+                "habitsCompleted": done,
+                "habitsRequired": 3,
+                "won": done >= 3 and ((bet_row or {}).get("active", False) or (bet_row or {}).get("completed", False)),
             })
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
 
     bet   = read_json(BET_FILE, {})
-    tasks = read_json(TASKS_FILE, [])
-    done  = sum(1 for t in tasks if t.get("done"))
+    habits = read_json(HABITS_FILE, [])
+    done  = _completed_habit_count(habits)
 
     return ok({
         "bet": bet,
-        "tasksCompleted": done,
-        "tasksRequired": 3,
-        "won": done >= 3 and bet.get("active", False),
+        "habitsCompleted": done,
+        "habitsRequired": 3,
+        "won": done >= 3 and (bet.get("active", False) or bet.get("completed", False)),
     })
 
 @app.route("/api/bet/cancel", methods=["POST"])
@@ -2632,7 +2661,7 @@ def dashboard():
         try:
             tasks_res = supabase.table(TASKS_TABLE).select("done").eq("user_id", get_current_user_id()).execute()
             tasks = tasks_res.data or []
-            habits_res = supabase.table(ROUTINES_TABLE).select("id").eq("user_id", get_current_user_id()).execute()
+            habits_res = supabase.table(ROUTINES_TABLE).select("*").eq("user_id", get_current_user_id()).execute()
             habits = habits_res.data or []
             finances_res = supabase.table("finances").select("type, amount").eq("user_id", get_current_user_id()).execute()
             finances = finances_res.data or []
@@ -2645,13 +2674,7 @@ def dashboard():
             total_tasks = len(tasks)
             total_habits = len(habits)
 
-            week = week_dates()
-            habit_ids = [h.get("id") for h in habits if h.get("id")]
-            done_habits = 0
-            if habit_ids:
-                today_str_val = week[-1].isoformat()
-                logs_res = supabase.table(ROUTINE_LOGS_TABLE).select("log_date, done").in_("habit_id", habit_ids).eq("log_date", today_str_val).execute()
-                done_habits = sum(1 for row in (logs_res.data or []) if row.get("log_date") == today_str_val and row.get("done"))
+            done_habits = _completed_habit_count(habits)
 
             income = sum(float(f.get("amount", 0)) for f in finances if f.get("type") == "income")
             expense = sum(float(f.get("amount", 0)) for f in finances if f.get("type") == "expense")
@@ -2667,7 +2690,7 @@ def dashboard():
                     "amount": float(bet_row.get("amount", 0) or 0),
                     "completed": bool(bet_row.get("completed", False)),
                     "refunded": bool(bet_row.get("refunded", False)),
-                    "tasksLeft": max(0, 3 - done_tasks),
+                    "habitsLeft": max(0, 3 - done_habits),
                 },
             })
         except Exception as e:
@@ -2681,7 +2704,7 @@ def dashboard():
 
     done_tasks   = sum(1 for t in tasks if t.get("done"))
     total_tasks  = len(tasks)
-    done_habits  = sum(1 for h in habits if h["week"][-1])
+    done_habits  = _completed_habit_count(habits)
     total_habits = len(habits)
     income  = sum(f["amount"] for f in finances if f.get("type") == "income")
     expense = sum(f["amount"] for f in finances if f.get("type") == "expense")
@@ -2698,7 +2721,7 @@ def dashboard():
             "amount":    bet.get("amount", 0),
             "completed": bet.get("completed", False),
             "refunded":  bet.get("refunded", False),
-            "tasksLeft": max(0, 3 - done_tasks),
+            "habitsLeft": max(0, 3 - done_habits),
         },
     })
 

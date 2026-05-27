@@ -774,6 +774,8 @@ img{display:block;max-width:100%}
 .post-action.voted{color:var(--amber)}
 .comment-list{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
 .comment-item{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:10px 12px}
+.comment-item.can-delete{cursor:pointer;user-select:none;touch-action:pan-y}
+.comment-item.long-pressing{border-color:var(--red);background:var(--red-dim)}
 .comment-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
 .comment-user{font-size:12px;font-weight:700;color:var(--txt1)}
 .comment-time{font-size:10px;color:var(--txt3)}
@@ -1117,8 +1119,8 @@ img{display:block;max-width:100%}
             <div class="bet-progress-fill" id="betProgressFill" style="width:50%"></div>
           </div>
           <div class="bet-progress-labels">
-            <span class="bet-prog-txt">2 de 3 hábitos</span>
-            <span class="bet-prog-txt hi">1 falta</span>
+            <span class="bet-prog-txt" id="betProgressText">0 de 3 hábitos</span>
+            <span class="bet-prog-txt hi" id="betRemainingText">3 faltan</span>
           </div>
         </div>
         <div class="bet-btns">
@@ -1667,9 +1669,6 @@ function updateKPIs(){
     document.getElementById('kpiIncomeBar').style.width=Math.round(income/maxMoney*100)+'%';
     document.getElementById('kpiExpenseBar').style.width=Math.round(expense/maxMoney*100)+'%';
   },300);
-  const betDone=state.tasks.filter(t=>t.done).length;
-  const fill=Math.min(Math.round(betDone/3*100),100);
-  document.getElementById('betProgressFill').style.width=fill+'%';
   renderBet();
   renderHomeStreak();
   renderProfile();
@@ -2354,10 +2353,15 @@ async function addHabitProgress(id){
     const r=await apiFetch(`${API}/habits/${id}/complete`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:1})});
     const p=await r.json().catch(()=>({}));
     if(!r.ok||!p.success)throw new Error(p.error||'Error');
-    Object.assign(h,normalizeHabit(p.data?.habit||h));
-    renderHabits();
+    const data=apiData(p,{});
+    Object.assign(h,normalizeHabit(data.habit||h));
+    if(data.betWon){
+      state.bet={...state.bet,active:false,completed:true,refunded:true};
+      showToast('Apuesta completada. Devolución en camino 💸','success');
+    }
+    renderHabits();updateKPIs();
   }catch(e){
-    Object.assign(h,prev);renderHabits();
+    Object.assign(h,prev);renderHabits();updateKPIs();
     showToast(e.message||'No pude guardar el progreso','error');
   }
 }
@@ -2528,16 +2532,35 @@ async function addFinance(){
 
 // ── BET ───────────────────────────────────────────────
 let selectedBetAmount=10000;
+function getBetHabitProgress(){
+  const todayHabits=getTodayHabits();
+  return {
+    done:todayHabits.filter(h=>h.done).length,
+    total:todayHabits.length,
+    required:3,
+  };
+}
 function renderBet(){
   const bet=state.bet||{};
   const amount=Number(bet.amount||0);
   const active=Boolean(bet.active);
-  const done=state.tasks.filter(t=>t.done).length;
-  const fill=Math.min(Math.round(done/3*100),100);
+  const completed=Boolean(bet.completed||bet.refunded);
+  const progress=getBetHabitProgress();
+  const done=progress.done;
+  const required=progress.required;
+  const left=Math.max(0,required-done);
+  const fill=Math.min(Math.round(done/required*100),100);
   document.getElementById('betAmountDisplay').textContent=amount?'$'+amount.toLocaleString('es-CO'):'$0';
-  document.getElementById('betStatusBadge').textContent=active?'Activa':'Sin apuesta';
-  document.getElementById('betStatusBadge').className='bet-status '+(active?'active':'none');
+  document.getElementById('betStatusBadge').textContent=completed?'Ganada':(active?'Activa':'Sin apuesta');
+  document.getElementById('betStatusBadge').className='bet-status '+((active||completed)?'active':'none');
   document.getElementById('betProgressFill').style.width=fill+'%';
+  document.getElementById('betProgressText').textContent=`${Math.min(done,required)} de ${required} hábitos`;
+  document.getElementById('betRemainingText').textContent=completed
+    ? 'completada'
+    : (left===1?'1 falta':`${left} faltan`);
+  document.getElementById('betSubText').textContent=completed
+    ? 'Reto cumplido: devolución en camino'
+    : 'Completa 3 hábitos hoy y te devolvemos tu plata';
 }
 function openBetModal(){document.getElementById('betModal').classList.add('open')}
 function selectAmount(amt,btn){
@@ -2716,6 +2739,9 @@ async function verifyPhoto(){
       if(state.photoModalMode==='habit'){
         const h=state.habits.find(x=>x.id===state.currentPhotoTask);
         if(h){h.verified=true;h.done=true;h.current=h.target;}
+        if(result.betWon){
+          state.bet={...state.bet,active:false,completed:true,refunded:true};
+        }
         setTimeout(()=>{closeModal('photoModal');renderHabits();updateKPIs();showToast('Hábito verificado por IA ✅','success');},1800);
       } else {
         const t=state.tasks.find(x=>x.id===state.currentPhotoTask);
@@ -2786,7 +2812,7 @@ function renderComments(){
       ? `<button class="comment-delete" onclick="${action(c.id)}" title="Borrar comentario"><i class="fa fa-trash"></i></button>`
       : '';
     return `
-    <div class="comment-item">
+    <div class="comment-item${c.canDelete?' can-delete':''}" data-comment-id="${escapeHTML(c.id)}" data-can-delete="${c.canDelete?'true':'false'}">
       <div class="comment-top">
         <span class="comment-user">${escapeHTML(c.user)}</span>
         <div class="comment-actions">
@@ -2856,12 +2882,12 @@ async function submitComment(){
     showToast(err.message||'No pude publicar el comentario','error');
   }
 }
-async function deleteComment(commentId){
+async function deleteComment(commentId, options={}){
   const postId=state.currentCommentPost;
   if(!postId||!commentId)return;
   const comment=state.comments.find(c=>c.id===String(commentId));
   if(!comment||!comment.canDelete)return;
-  if(!confirm('¿Borrar este comentario?'))return;
+  if(!options.skipConfirm&&!confirm('¿Borrar este comentario?'))return;
 
   const previousComments=[...state.comments];
   const post=state.posts.find(p=>p.id===postId);
@@ -2882,6 +2908,55 @@ async function deleteComment(commentId){
     showToast(err.message||'No pude borrar el comentario','error');
   }
 }
+const COMMENT_LONG_PRESS_MS=650;
+const COMMENT_LONG_PRESS_MOVE_LIMIT=12;
+let commentLongPress=null;
+function clearCommentLongPress(){
+  if(commentLongPress?.timer)clearTimeout(commentLongPress.timer);
+  if(commentLongPress?.item)commentLongPress.item.classList.remove('long-pressing');
+  commentLongPress=null;
+}
+function startCommentLongPress(e){
+  if(e.button!==undefined&&e.button!==0)return;
+  if(e.target.closest('.comment-delete'))return;
+  const item=e.target.closest('.comment-item[data-can-delete="true"]');
+  if(!item)return;
+  clearCommentLongPress();
+  const commentId=item.dataset.commentId;
+  commentLongPress={
+    item,
+    commentId,
+    pointerId:e.pointerId,
+    startX:e.clientX,
+    startY:e.clientY,
+    timer:setTimeout(()=>{
+      item.classList.remove('long-pressing');
+      commentLongPress=null;
+      deleteComment(commentId,{skipConfirm:true});
+    },COMMENT_LONG_PRESS_MS),
+  };
+  item.classList.add('long-pressing');
+}
+function moveCommentLongPress(e){
+  if(!commentLongPress||e.pointerId!==commentLongPress.pointerId)return;
+  const dx=Math.abs(e.clientX-commentLongPress.startX);
+  const dy=Math.abs(e.clientY-commentLongPress.startY);
+  if(dx>COMMENT_LONG_PRESS_MOVE_LIMIT||dy>COMMENT_LONG_PRESS_MOVE_LIMIT)clearCommentLongPress();
+}
+function cancelCommentLongPress(e){
+  if(!commentLongPress)return;
+  if(e?.pointerId!==undefined&&e.pointerId!==commentLongPress.pointerId)return;
+  clearCommentLongPress();
+}
+const commentListEl=document.getElementById('commentList');
+commentListEl?.addEventListener('pointerdown',startCommentLongPress);
+commentListEl?.addEventListener('pointermove',moveCommentLongPress);
+commentListEl?.addEventListener('pointerup',cancelCommentLongPress);
+commentListEl?.addEventListener('pointercancel',cancelCommentLongPress);
+commentListEl?.addEventListener('pointerleave',cancelCommentLongPress);
+commentListEl?.addEventListener('contextmenu',e=>{
+  if(e.target.closest('.comment-item[data-can-delete="true"]'))e.preventDefault();
+});
 async function submitPost(){
   const input=document.getElementById('newPostInput');
   const text=input.value.trim();if(!text)return;
