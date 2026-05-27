@@ -2483,17 +2483,21 @@ def _build_agent_context(user_id):
 def _execute_agent_tool(tool_name, tool_input, user_id):
     try:
         if tool_name == "complete_habit":
-            habit_id = tool_input.get("habit_id", "")
+            habit_id = (tool_input.get("habit_id") or "").strip().strip("[]").strip()
+            habit_name = (tool_input.get("habit_name") or "").strip()
             amount = float(tool_input.get("amount", 1) or 1)
             if SUPABASE_ENABLED and supabase:
-                res = supabase.table(ROUTINES_TABLE).select("*").eq("id", habit_id).eq("user_id", user_id).limit(1).execute()
-                if not res.data:
+                res = supabase.table(ROUTINES_TABLE).select("*").eq("id", habit_id).eq("user_id", user_id).limit(1).execute() if habit_id else None
+                if not (res and res.data) and habit_name:
+                    res = supabase.table(ROUTINES_TABLE).select("*").ilike("name", habit_name).eq("user_id", user_id).limit(1).execute()
+                if not (res and res.data):
                     return "Hábito no encontrado"
                 current = res.data[0]
                 mapped = map_habit_row(current)
+                real_id = current.get("id", habit_id)
                 new_current = min(float(current.get("current", 0) or 0) + amount, mapped["target"])
                 new_done = new_current >= mapped["target"]
-                supabase.table(ROUTINES_TABLE).update({"current": new_current, "done": new_done}).eq("id", habit_id).eq("user_id", user_id).execute()
+                supabase.table(ROUTINES_TABLE).update({"current": new_current, "done": new_done}).eq("id", real_id).eq("user_id", user_id).execute()
                 return f"Progreso guardado: {new_current}/{mapped['target']} {mapped['unit']}. {'¡Completado!' if new_done else 'Sigue así.'}"
             return "Supabase no disponible"
 
@@ -2607,22 +2611,26 @@ TAREAS:
 FINANZAS:
 {ctx['finances_text']}
 
-Cuando el usuario mencione que hizo algo (ej: "me tomé un vaso de agua", "fui al gym", "terminé el reporte"), identifica si coincide con un hábito o tarea y registra el avance usando las herramientas disponibles.
-Siempre confirma al usuario qué registraste. Sé breve (2-3 oraciones máximo salvo que pidan más detalle).
+REGLAS CRÍTICAS:
+1. Cuando el usuario mencione que realizó algo, USA SIEMPRE la herramienta correspondiente (complete_habit o complete_task). No respondas sin registrar.
+2. Para complete_habit: copia el UUID exacto que aparece entre [] en el listado de hábitos como habit_id.
+3. Para complete_habit: usa el número exacto que menciona el usuario como amount (ej: "tomé 2 vasos" → amount=2, "corrí 5km" → amount=5). Si no especifica cantidad, usa 1.
+4. Siempre confirma al usuario qué registraste con el resultado real del progreso.
+Sé breve (2-3 oraciones máximo salvo que pidan más detalle).
 Responde SIEMPRE en español."""
 
     tools = [
         {
             "name": "complete_habit",
-            "description": "Registra progreso en un hábito del usuario cuando menciona haberlo realizado.",
+            "description": "Registra progreso en un hábito del usuario cuando menciona haberlo realizado. IMPORTANTE: usa el número exacto que menciona el usuario como amount (ej: 'tomé 2 vasos' → amount=2, 'corrí 5km' → amount=5).",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "habit_id": {"type": "string", "description": "ID exacto del hábito (del listado)"},
-                    "habit_name": {"type": "string", "description": "Nombre del hábito"},
-                    "amount": {"type": "number", "description": "Cantidad a sumar al progreso (default 1)"}
+                    "habit_id": {"type": "string", "description": "UUID del hábito tal como aparece entre corchetes en el listado, ej: 'a1b2c3d4-...'"},
+                    "habit_name": {"type": "string", "description": "Nombre del hábito para fallback si el ID no coincide"},
+                    "amount": {"type": "number", "description": "Cantidad exacta que el usuario dice haber completado (ej: 2 si dijo 'tomé 2 vasos')"}
                 },
-                "required": ["habit_id", "habit_name"]
+                "required": ["habit_id", "habit_name", "amount"]
             }
         },
         {
