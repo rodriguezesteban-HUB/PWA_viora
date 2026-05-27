@@ -1641,7 +1641,7 @@ function checkDailyRollover(){
 }
 setInterval(checkDailyRollover,60000);
 function isHabitScheduledOnWeekIndex(habit, weekIndex){
-  if(Array.isArray(habit.week)&&habit.week.length===7)return Boolean(habit.week[weekIndex]);
+  if(habit.period==='semanal'&&Array.isArray(habit.week)&&habit.week.length===7)return Boolean(habit.week[weekIndex]);
   return habit.period==='diaria'||!habit.period;
 }
 function getTodayHabits(){

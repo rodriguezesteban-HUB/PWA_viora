@@ -115,6 +115,9 @@ TASK_CATEGORIES = {
     "trabajo",
     "hogar",
 }
+COMMUNITY_BLOCKED_TEXTS = {
+    "La mala para esa María Fernanda Sánchez Durán",
+}
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
 if not JWT_SECRET and not os.environ.get("VERCEL"):
@@ -315,8 +318,34 @@ def _normalize_habit_category(value):
     for c in "áéíóúñ": raw = raw.replace(c, "aeioun"["áéíóúñ".index(c)])
     return raw if raw in TASK_CATEGORIES else "habitos"
 
+def normalize_habit_week(value):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            value = None
+    if not isinstance(value, list):
+        return None
+    return [bool(x) for x in value[:7]] + [False] * max(0, 7 - len(value))
+
+def encode_habit_period(period, week=None):
+    clean_period = period or "diaria"
+    if clean_period == "semanal" and isinstance(week, list) and len(week) == 7:
+        return "semanal:" + "".join("1" if day else "0" for day in week)
+    return clean_period
+
+def decode_habit_period(raw_period):
+    period = raw_period or "diaria"
+    encoded_week = None
+    if isinstance(period, str) and period.startswith("semanal:"):
+        bits = period.split(":", 1)[1][:7]
+        encoded_week = [(char == "1") for char in bits] + [False] * max(0, 7 - len(bits))
+        period = "semanal"
+    return period, encoded_week
+
 def map_habit_row(row, week=None):
     category = _normalize_habit_category(row.get("category"))
+    period, encoded_week = decode_habit_period(row.get("period", "diaria"))
     target = float(row.get("target", 1) or 1)
     current = float(row.get("current", target if row.get("done") else 0) or 0)
     saved_week = row.get("week")
@@ -331,11 +360,12 @@ def map_habit_row(row, week=None):
         saved_week = [bool(x) for x in saved_week]
     else:
         saved_week = None
+    saved_week = saved_week or encoded_week
     return {
         "id": row.get("id"),
         "name": row.get("name"),
         "category": category,
-        "period": row.get("period", "diaria"),
+        "period": period,
         "target": target,
         "current": current,
         "unit": row.get("unit", "veces"),
@@ -377,6 +407,33 @@ def map_comment_row(row, user_name=None, current_user_id=None):
         "createdAt": row.get("created_at") or row.get("createdAt"),
         "canDelete": bool(current_user_id and comment_user_id and str(comment_user_id) == str(current_user_id)),
     }
+
+def is_blocked_community_text(text):
+    normalized = " ".join(str(text or "").split()).casefold()
+    return any(normalized == " ".join(blocked.split()).casefold() for blocked in COMMUNITY_BLOCKED_TEXTS)
+
+def cleanup_reported_community_content():
+    if SUPABASE_ENABLED and supabase:
+        for text in COMMUNITY_BLOCKED_TEXTS:
+            try:
+                supabase.table("community_comments").delete().eq("text", text).execute()
+            except Exception:
+                pass
+            try:
+                supabase.table("community_posts").delete().eq("text", text).execute()
+            except Exception:
+                pass
+        return
+
+    posts = read_json(COMMUNITY_FILE, [])
+    filtered_posts = [p for p in posts if not is_blocked_community_text(p.get("text"))]
+    if len(filtered_posts) != len(posts):
+        write_json(COMMUNITY_FILE, filtered_posts)
+
+    comments = read_json(COMMUNITY_COMMENTS_FILE, [])
+    filtered_comments = [c for c in comments if not is_blocked_community_text(c.get("text"))]
+    if len(filtered_comments) != len(comments):
+        write_json(COMMUNITY_COMMENTS_FILE, filtered_comments)
 
 def map_bet_row(row):
     if not row:
@@ -1365,7 +1422,7 @@ def add_task_progress(task_id):
 def _habit_is_scheduled_today(row):
     habit = map_habit_row(row)
     week = habit.get("week")
-    if isinstance(week, list) and len(week) == 7:
+    if habit.get("period") == "semanal" and isinstance(week, list) and len(week) == 7:
         return bool(week[date.today().weekday()])
     return habit.get("period") == "diaria" or not habit.get("period")
 
@@ -1435,13 +1492,15 @@ def create_habit():
         return err("El campo 'name' es requerido")
     category = _normalize_habit_category(body.get("category") or body.get("cat"))
     requires_photo = category == "gym"
+    period = body.get("period", "diaria")
+    week = normalize_habit_week(body.get("week"))
 
     if SUPABASE_ENABLED and supabase:
         payload = {
             "user_id": get_current_user_id(),
             "name": name,
             "category": category,
-            "period": body.get("period", "diaria"),
+            "period": encode_habit_period(period, week),
             "target": float(body.get("target", 1) or 1),
             "current": 0,
             "unit": body.get("unit", "veces"),
@@ -1449,10 +1508,10 @@ def create_habit():
             "requires_photo": requires_photo,
             "verified": False,
         }
-        if isinstance(body.get("week"), list):
-            payload["week"] = [bool(x) for x in body.get("week")[:7]] + [False] * max(0, 7 - len(body.get("week")))
+        if week is not None:
+            payload["week"] = week
         try:
-            res = supabase.table(ROUTINES_TABLE).insert(payload).execute()
+            res = _sb_insert(ROUTINES_TABLE, payload, {"user_id", "name"})
             row = (res.data or [payload])[0]
             return ok(map_habit_row(row), "Hábito creado")
         except Exception as e:
@@ -1462,7 +1521,7 @@ def create_habit():
         "id": str(uuid.uuid4()),
         "name": name,
         "category": category,
-        "period": body.get("period", "diaria"),
+        "period": period,
         "target": float(body.get("target", 1) or 1),
         "current": 0,
         "unit": body.get("unit", "veces"),
@@ -1471,8 +1530,8 @@ def create_habit():
         "verified": False,
         "createdAt": now_str(),
     }
-    if isinstance(body.get("week"), list):
-        habit["week"] = [bool(x) for x in body.get("week")[:7]] + [False] * max(0, 7 - len(body.get("week")))
+    if week is not None:
+        habit["week"] = week
     habits = read_json(HABITS_FILE, [])
     habits.append(habit)
     write_json(HABITS_FILE, habits)
@@ -1488,29 +1547,25 @@ def update_habit(habit_id):
     period = body.get("period", "diaria")
     target = float(body.get("target", 1) or 1)
     unit = body.get("unit", "veces")
-    week = body.get("week")
-    if isinstance(week, str):
-        try:
-            week = json.loads(week)
-        except Exception:
-            week = None
-    if isinstance(week, list):
-        week = [bool(x) for x in week[:7]] + [False] * max(0, 7 - len(week))
-    else:
-        week = None
+    week = normalize_habit_week(body.get("week"))
 
     if SUPABASE_ENABLED and supabase:
         try:
             payload = {
                 "name": name,
                 "category": category,
-                "period": period,
+                "period": encode_habit_period(period, week),
                 "target": target,
                 "unit": unit,
             }
             if week is not None:
                 payload["week"] = week
-            res = supabase.table(ROUTINES_TABLE).update(payload).eq("id", habit_id).eq("user_id", get_current_user_id()).execute()
+            res = _sb_update(
+                ROUTINES_TABLE,
+                payload,
+                {"name", "period"},
+                {"id": habit_id, "user_id": get_current_user_id()},
+            )
             if not res.data:
                 return err("Hábito no encontrado", 404)
             return ok(map_habit_row(res.data[0]), "Hábito actualizado")
@@ -2042,6 +2097,7 @@ def cancel_bet():
 def get_posts():
     """Lista posts. Query: ?cat=gym|finanzas|habitos|general"""
     cat = request.args.get("cat")
+    cleanup_reported_community_content()
 
     if SUPABASE_ENABLED and supabase:
         try:
@@ -2079,6 +2135,8 @@ def create_post():
         return err("El campo 'text' es requerido")
     if len(text) > 500:
         return err("Máximo 500 caracteres")
+    if is_blocked_community_text(text):
+        return err("Ese contenido fue removido de la comunidad", 403)
 
     if SUPABASE_ENABLED and supabase:
         payload = {
@@ -2116,6 +2174,7 @@ def create_post():
 @app.route("/api/community/<post_id>/comments", methods=["GET"])
 def get_comments(post_id):
     """Lista comentarios de un post."""
+    cleanup_reported_community_content()
     if SUPABASE_ENABLED and supabase:
         try:
             res = supabase.table("community_comments").select("*").eq("post_id", post_id).order("created_at", desc=False).execute()
@@ -2146,6 +2205,8 @@ def create_comment(post_id):
         return err("El comentario no puede estar vacío")
     if len(text) > 300:
         return err("Máximo 300 caracteres")
+    if is_blocked_community_text(text):
+        return err("Ese contenido fue removido de la comunidad", 403)
 
     if SUPABASE_ENABLED and supabase:
         try:
