@@ -16,13 +16,10 @@
 import json, os, base64, uuid, io
 from datetime import datetime, date, timedelta
 from functools import wraps
-from urllib.parse import urlencode
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 import requests
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
-from flask import Flask, request, jsonify, send_from_directory, redirect, make_response
+from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
 try:
     from supabase import create_client, Client
@@ -114,10 +111,6 @@ TASK_CATEGORIES = {
     "hogar",
 }
 
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
-GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
-GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "").strip()
-APP_BASE_URL = os.environ.get("APP_BASE_URL", "").strip()
 JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
 if not JWT_SECRET and not os.environ.get("VERCEL"):
     JWT_SECRET = "viora-local-dev-secret"
@@ -730,12 +723,6 @@ def is_request_secure():
         return True
     return request.headers.get("X-Forwarded-Proto", "").lower() == "https"
 
-def get_google_redirect_uri():
-    if GOOGLE_REDIRECT_URI:
-        return GOOGLE_REDIRECT_URI
-    base = request.url_root.rstrip("/")
-    return f"{base}/api/auth/google/callback"
-
 def decode_auth_token(token):
     if not token or not JWT_SECRET:
         return None
@@ -865,8 +852,6 @@ def api_auth_required_in_this_environment():
 
 PUBLIC_API_ENDPOINTS = {
     "client_config",
-    "google_login",
-    "google_callback",
     "email_register",
     "email_login",
     "auth_me",
@@ -943,103 +928,6 @@ def serve_static(filename):
 # ══════════════════════════════════════════════════════
 #  AUTH
 # ══════════════════════════════════════════════════════
-
-@app.route("/api/auth/google/login", methods=["GET"])
-def google_login():
-    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
-        return err("Google OAuth no configurado", 500)
-
-    state = uuid.uuid4().hex
-    redirect_uri = get_google_redirect_uri()
-    params = {
-        "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "scope": "openid email profile",
-        "access_type": "offline",
-        "prompt": "consent",
-        "state": state,
-    }
-    auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
-    response = redirect(auth_url)
-    response.set_cookie(
-        "viora_oauth_state",
-        state,
-        httponly=True,
-        secure=is_request_secure(),
-        samesite="Lax",
-        max_age=600,
-    )
-    return response
-
-@app.route("/api/auth/google/callback", methods=["GET"])
-def google_callback():
-    error = request.args.get("error")
-    if error:
-        return err(f"Google OAuth error: {error}", 400)
-
-    state = request.args.get("state")
-    cookie_state = request.cookies.get("viora_oauth_state")
-    if not state or not cookie_state or state != cookie_state:
-        return err("Estado OAuth invalido", 400)
-
-    code = request.args.get("code")
-    if not code:
-        return err("Codigo OAuth faltante", 400)
-
-    token_res = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "code": code,
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
-            "redirect_uri": get_google_redirect_uri(),
-            "grant_type": "authorization_code",
-        },
-        timeout=10,
-    )
-
-    if token_res.status_code != 200:
-        return err("No se pudo canjear el token con Google", 502)
-
-    token_data = token_res.json()
-    raw_id_token = token_data.get("id_token")
-    if not raw_id_token:
-        return err("Google no devolvio id_token", 502)
-
-    try:
-        info = id_token.verify_oauth2_token(
-            raw_id_token,
-            google_requests.Request(),
-            GOOGLE_CLIENT_ID,
-        )
-    except Exception:
-        return err("id_token invalido", 401)
-
-    email = info.get("email")
-    name = info.get("name") or info.get("given_name") or email
-    if not email:
-        return err("Google no devolvio email", 401)
-
-    user_id, display_name = get_or_create_user_by_email(email, name)
-    if not user_id:
-        return err("No se pudo crear el perfil en Supabase. Revisa la tabla users y permisos.", 502)
-
-    redirect_target = APP_BASE_URL or request.url_root
-    response = redirect(redirect_target)
-    token = issue_auth_token(user_id, email=email, name=display_name)
-    if not token:
-        return err("JWT_SECRET no configurado", 500)
-    response.set_cookie(
-        "viora_token",
-        token,
-        httponly=True,
-        secure=is_request_secure(),
-        samesite="Lax",
-        max_age=JWT_TTL_MINUTES * 60,
-    )
-    response.set_cookie("viora_oauth_state", "", expires=0)
-    return response
 
 @app.route("/api/auth/email/register", methods=["POST"])
 def email_register():
@@ -1503,6 +1391,33 @@ def delete_habit(habit_id):
     write_json(HABITS_FILE, new_habits)
     return ok(msg="Hábito eliminado")
 
+@app.route("/api/habits/<habit_id>/reset", methods=["POST"])
+def reset_habit_progress(habit_id):
+    """Limpia el progreso diario de un hábito sin eliminarlo."""
+    reset_fields = {"current": 0, "done": False, "verified": False}
+
+    if SUPABASE_ENABLED and supabase:
+        try:
+            res = _sb_update(
+                ROUTINES_TABLE,
+                reset_fields,
+                set(),
+                {"id": habit_id, "user_id": get_current_user_id()},
+            )
+            if not res or not res.data:
+                return err("Hábito no encontrado", 404)
+            return ok(map_habit_row(res.data[0]), "Progreso diario reiniciado")
+        except Exception as e:
+            return err(f"Error Supabase: {str(e)}", 502)
+
+    habits = read_json(HABITS_FILE, [])
+    habit = next((h for h in habits if h["id"] == habit_id), None)
+    if not habit:
+        return err("Hábito no encontrado", 404)
+    habit.update(reset_fields)
+    write_json(HABITS_FILE, habits)
+    return ok(map_habit_row(habit), "Progreso diario reiniciado")
+
 @app.route("/api/habits/<habit_id>/complete", methods=["POST"])
 def complete_habit(habit_id):
     """Suma progreso o completa un hábito.
@@ -1599,15 +1514,22 @@ def verify_habit_photo(habit_id):
     if result.get("approved"):
         if SUPABASE_ENABLED and supabase:
             try:
-                supabase.table(ROUTINES_TABLE).update({"verified": True, "done": True}).eq("id", habit_id).eq("user_id", get_current_user_id()).execute()
+                _sb_update(
+                    ROUTINES_TABLE,
+                    {"verified": True, "done": True, "current": habit["target"]},
+                    {"done"},
+                    {"id": habit_id, "user_id": get_current_user_id()},
+                )
             except Exception as e:
                 return err(f"Error Supabase: {str(e)}", 502)
         else:
             habits = read_json(HABITS_FILE, [])
             h = next((x for x in habits if x["id"] == habit_id), None)
             if h:
+                mapped_habit = map_habit_row(h)
                 h["verified"] = True
                 h["done"] = True
+                h["current"] = mapped_habit["target"]
                 write_json(HABITS_FILE, habits)
 
     return ok(result, "Verificación completada")

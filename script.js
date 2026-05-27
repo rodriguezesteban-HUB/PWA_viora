@@ -82,7 +82,6 @@ const authLoginForm = document.getElementById('auth-form-login');
 const authRegisterForm = document.getElementById('auth-form-register');
 const authLoginTab = document.getElementById('auth-mode-login');
 const authRegisterTab = document.getElementById('auth-mode-register');
-const authGoogleBtn = document.getElementById('auth-google-btn');
 const authError = document.getElementById('auth-error');
 const greetingName = document.getElementById('greeting-name');
 const profileLogoutEmail = document.getElementById('profile-logout-email');
@@ -201,26 +200,6 @@ logoutBtn?.addEventListener('click', logoutViora);
 authLoginTab?.addEventListener('click', () => setAuthMode('login'));
 authRegisterTab?.addEventListener('click', () => setAuthMode('register'));
 
-authGoogleBtn?.classList.remove('hidden');
-document.querySelector('.auth-divider')?.classList.remove('hidden');
-authGoogleBtn?.addEventListener('click', async () => {
-    if (authError) authError.textContent = '';
-    const client = await window.vioraSupabaseReady;
-    if (!client) {
-        if (authError) authError.textContent = 'Supabase Auth no esta configurado. Revisa SUPABASE_ANON_KEY.';
-        return;
-    }
-    const { error } = await client.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-            redirectTo: window.location.origin,
-        },
-    });
-    if (error && authError) {
-        authError.textContent = error.message || 'No se pudo iniciar con Google';
-    }
-});
-
 authLoginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (authError) authError.textContent = '';
@@ -322,7 +301,7 @@ authRegisterForm?.addEventListener('submit', async (event) => {
 });
 
 window.vioraSupabaseReady.then(async (client) => {
-    if (client && !window.vioraJustExchangedOAuth) {
+    if (client) {
         await client.auth.signOut({ scope: 'local' }).catch(() => {});
         clearSupabaseAuthStorage();
     }

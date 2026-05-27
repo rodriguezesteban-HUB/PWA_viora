@@ -88,11 +88,6 @@ img{display:block;max-width:100%}
   background:var(--amber);color:#1B1406;border-radius:12px;
   padding:12px 14px;font-weight:700;font-size:14px;
 }
-.auth-google{
-  border:1px solid var(--border2);border-radius:12px;padding:12px 14px;
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  color:var(--txt1);background:var(--bg2);font-weight:600;font-size:14px;
-}
 .auth-divider{
   display:flex;align-items:center;gap:10px;color:var(--txt3);font-size:11px;margin:16px 0;
 }
@@ -372,6 +367,11 @@ img{display:block;max-width:100%}
   transition:all var(--trans);
 }
 .nav-fab:active{transform:scale(0.93)}
+.bee-mark{
+  display:inline-block;
+  line-height:1;
+  filter:grayscale(1) brightness(0) contrast(2);
+}
 
 /* ── AGENT PANEL ─────────────────────────────────────── */
 .agent-overlay{
@@ -393,9 +393,9 @@ img{display:block;max-width:100%}
 .agent-header-info{display:flex;align-items:center;gap:12px}
 .agent-avatar{
   width:38px;height:38px;border-radius:50%;
-  background:var(--amber-dim);color:var(--amber);
+  background:var(--amber);
   display:flex;align-items:center;justify-content:center;
-  font-size:17px;flex-shrink:0;
+  font-size:19px;flex-shrink:0;
 }
 .agent-name{font-family:var(--font-head);font-size:15px;font-weight:800;color:var(--txt1)}
 .agent-status{font-size:11px;color:var(--amber);margin-top:1px}
@@ -967,11 +967,6 @@ img{display:block;max-width:100%}
         <button class="auth-primary" type="submit">Crear cuenta</button>
       </form>
 
-      <div class="auth-divider">o</div>
-      <button class="auth-google" id="auth-google-btn" type="button">
-        <i class="fa-brands fa-google"></i>
-        Continuar con Google
-      </button>
       <div class="auth-error" id="auth-error"></div>
     </div>
   </div>
@@ -999,8 +994,8 @@ img{display:block;max-width:100%}
     </div>
     <div class="topbar-actions">
       <div class="user-badge hidden" id="user-badge">Usuario</div>
-      <button class="icon-btn" id="btn-login" title="Login con Google">
-        <i class="fa-brands fa-google"></i>
+      <button class="icon-btn" id="btn-login" title="Ingresar">
+        <i class="fa fa-user"></i>
       </button>
       <button class="icon-btn hidden" id="btn-logout" title="Salir">
         <i class="fa fa-right-from-bracket"></i>
@@ -1300,7 +1295,7 @@ img{display:block;max-width:100%}
       <span class="nav-label">Hábitos</span>
     </button>
     <button class="nav-fab" onclick="openAgentChat()" title="Viora Coach">
-      <i class="fa fa-robot"></i>
+      <span class="bee-mark">🐝</span>
     </button>
     <button class="nav-item" data-page="finances" onclick="navTo('finances')">
       <span class="nav-icon"><i class="fa fa-wallet"></i></span>
@@ -1320,7 +1315,7 @@ img{display:block;max-width:100%}
   <div class="agent-overlay" id="agentOverlay">
     <div class="agent-header">
       <div class="agent-header-info">
-        <div class="agent-avatar"><i class="fa fa-robot"></i></div>
+        <div class="agent-avatar"><span class="bee-mark">🐝</span></div>
         <div>
           <div class="agent-name">Viora Coach</div>
           <div class="agent-status" id="agentStatus">listo para ayudarte</div>
@@ -1540,14 +1535,6 @@ window.vioraSupabaseReady = (async () => {
     const config = payload?.data || {};
     if (!config.supabaseAuthEnabled || !window.supabase) return null;
     window.vioraSupabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-    const params = new URLSearchParams(window.location.search);
-    const authCode = params.get('code');
-    if (authCode) {
-      const { error } = await window.vioraSupabase.auth.exchangeCodeForSession(authCode);
-      if (error) console.error('No se pudo completar Google Auth:', error);
-      else window.vioraJustExchangedOAuth = true;
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
     return window.vioraSupabase;
   } catch (err) {
     console.error('No se pudo inicializar Supabase Auth:', err);
@@ -1637,14 +1624,30 @@ function getTodayWeekIndex(){
 function getTodayKey(){
   return new Date().toISOString().slice(0,10);
 }
+let activeDayKey=getTodayKey();
+function checkDailyRollover(){
+  const todayKey=getTodayKey();
+  if(todayKey===activeDayKey)return;
+  activeDayKey=todayKey;
+  if(typeof loadVioraData==='function')loadVioraData();
+}
+setInterval(checkDailyRollover,60000);
+function isHabitScheduledOnWeekIndex(habit, weekIndex){
+  if(Array.isArray(habit.week)&&habit.week.length===7)return Boolean(habit.week[weekIndex]);
+  return habit.period==='diaria'||!habit.period;
+}
+function getTodayHabits(){
+  const todayIndex=getTodayWeekIndex();
+  return state.habits.filter(h=>isHabitScheduledOnWeekIndex(h,todayIndex));
+}
 
 // ── KPIs ──────────────────────────────────────────────
 function updateKPIs(){
   const done=state.tasks.filter(t=>t.done).length;
   const total=state.tasks.length;
-  const todayIndex=getTodayWeekIndex();
-  const habitsDone=state.habits.filter(h=>Array.isArray(h.week)&&h.week[todayIndex]).length;
-  const habitsTotal=state.habits.length;
+  const todayHabits=getTodayHabits();
+  const habitsDone=todayHabits.filter(h=>h.done).length;
+  const habitsTotal=todayHabits.length;
   const income=state.finances.filter(f=>f.type==='income').reduce((sum,f)=>sum+Number(f.amount||0),0);
   const expense=state.finances.filter(f=>f.type==='expense').reduce((sum,f)=>sum+Number(f.amount||0),0);
   const maxMoney=Math.max(income,expense,1);
@@ -1737,9 +1740,9 @@ function getCompletedDailyMissions(){
   const dailyTasks=state.tasks.filter(t=>t.period==='diaria');
   const taskTotal=dailyTasks.length||state.tasks.length;
   const taskDone=dailyTasks.length?dailyTasks.filter(t=>t.done).length:state.tasks.filter(t=>t.done).length;
-  const todayIndex=getTodayWeekIndex();
-  const habitsToday=state.habits.filter(h=>Array.isArray(h.week)&&h.week[todayIndex]).length;
-  return {done:taskDone+habitsToday,total:taskTotal+state.habits.length};
+  const todayHabits=getTodayHabits();
+  const habitsDone=todayHabits.filter(h=>h.done).length;
+  return {done:taskDone+habitsDone,total:taskTotal+todayHabits.length};
 }
 function renderHomeStreak(){
   const card=document.getElementById('homeStreakCard');
@@ -1903,6 +1906,25 @@ function resetPrivateState(){
   renderProfile();
 }
 window.resetPrivateState=resetPrivateState;
+async function resetDailyHabitCompletions(){
+  const todayKey=getTodayKey();
+  const userKey=state.user?.id||state.user?.email||'anon';
+  const storageKey=`viora:lastHabitDailyReset:${userKey}`;
+  if(localStorage.getItem(storageKey)===todayKey)return;
+
+  const completedHabits=state.habits.filter(h=>h.done||Number(h.current||0)>0||h.verified);
+  completedHabits.forEach(h=>{
+    h.current=0;
+    h.done=false;
+    h.verified=false;
+  });
+  localStorage.setItem(storageKey,todayKey);
+  if(!completedHabits.length)return;
+
+  await Promise.all(completedHabits.map(h=>
+    apiFetch(`${API}/habits/${h.id}/reset`,{method:'POST'}).catch(()=>null)
+  ));
+}
 async function loadVioraData(){
   try{
     const authClient=await window.vioraSupabaseReady;
@@ -1958,7 +1980,10 @@ async function loadVioraData(){
         }).catch(()=>null)
       ));
     }
-    if(habitsRes.ok&&habitsPayload.success)state.habits=apiData(habitsPayload,[]).map(normalizeHabit);
+    if(habitsRes.ok&&habitsPayload.success){
+      state.habits=apiData(habitsPayload,[]).map(normalizeHabit);
+      await resetDailyHabitCompletions();
+    }
     if(financesRes.ok&&financesPayload.success){
       const financesData=apiData(financesPayload,{items:[]});
       state.finances=(financesData.items||[]).map(normalizeFinance);
@@ -2328,8 +2353,24 @@ async function addHabitProgress(id){
 }
 function openHabitPhotoModal(id){
   state.currentPhotoTask=id;
+  state.currentPhotoFile=null;
   state.photoModalMode='habit';
+  document.getElementById('verifyResult').className='verify-result';
+  document.getElementById('verifyResult').innerHTML='';
+  document.getElementById('verifySpinner').className='verify-spinner';
+  document.getElementById('verifyBtn').style.display='none';
+  document.getElementById('verifyBtn').innerHTML='<span style="font-weight:900;color:#000;font-size:15px">🐝</span> Verificar gym con IA';
+  document.getElementById('captureBtn').style.display='block';
+  document.getElementById('captureBtn').disabled=true;
+  document.getElementById('retakeBtn').style.display='none';
+  document.getElementById('photoVideo').style.display='none';
+  document.getElementById('photoCanvas').style.display='none';
+  document.getElementById('photoCameraPlaceholder').style.display='block';
+  document.getElementById('photoCameraPlaceholder').innerHTML='<i class="fa fa-camera"></i>Activando cámara...';
+  const h=state.habits.find(x=>String(x.id)===String(id));
+  document.getElementById('photoModalTitle').textContent=`📸 Verificar: ${h?h.name:'hábito'}`;
   document.getElementById('photoModal')?.classList.add('open');
+  startCamera();
 }
 window.openAddHabitModal = function(){
   editingHabitId = null;
