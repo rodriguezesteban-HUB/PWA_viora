@@ -2563,8 +2563,8 @@ def _execute_agent_tool(tool_name, tool_input, user_id):
                 "user_id": user_id,
                 "type": ftype,
                 "amount": amount,
-                "description": description,
-                "date": date.today().isoformat(),
+                "name": description,
+                "transaction_date": date.today().isoformat(),
             }
             if SUPABASE_ENABLED and supabase:
                 supabase.table("finances").insert(payload).execute()
