@@ -777,6 +777,9 @@ img{display:block;max-width:100%}
 .comment-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
 .comment-user{font-size:12px;font-weight:700;color:var(--txt1)}
 .comment-time{font-size:10px;color:var(--txt3)}
+.comment-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.comment-delete{width:26px;height:26px;border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;color:var(--txt3);font-size:12px;transition:background var(--trans),color var(--trans)}
+.comment-delete:hover{background:var(--red-dim);color:var(--red)}
 .comment-text{font-size:13px;line-height:1.45;color:var(--txt2)}
 .comment-form{display:flex;gap:8px;align-items:center}
 .comment-form input{flex:1;background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;font-size:13px;color:var(--txt1)}
@@ -1791,6 +1794,7 @@ function normalizeTask(t){
     name:t.name||'Sin nombre',
     description:t.description||'',
     due_date:t.due_date||null,
+    period:t.period||'diaria',
     done:Boolean(t.done||t.status==='completed'),
     createdAt:t.createdAt||t.created_at||null,
   };
@@ -1896,6 +1900,7 @@ function normalizeComment(c){
     user:c.user||'Usuario',
     text:c.text||'',
     createdAt:c.createdAt||c.created_at||null,
+    canDelete:Boolean(c.canDelete),
   };
 }
 function resetPrivateState(){
@@ -1967,14 +1972,16 @@ async function loadVioraData(){
     if(!tasksRes.ok||!tasksPayload.success)throw new Error(tasksPayload.error||'No se pudieron cargar las tareas');
     state.tasks=apiData(tasksPayload,[]).map(normalizeTask);
     const todayKey=getTodayKey();
-    const lastReset=localStorage.getItem('viora:lastDailyReset');
+    const taskResetUserKey=state.user?.id||state.user?.email||'anon';
+    const taskResetStorageKey=`viora:lastDailyTaskReset:${taskResetUserKey}`;
+    const lastReset=localStorage.getItem(taskResetStorageKey);
     if(lastReset!==todayKey){
       const dailyDone=state.tasks.filter(t=>t.period==='diaria'&&t.done);
       dailyDone.forEach(task=>{
         task.done=false;
         task.current=0;
       });
-      localStorage.setItem('viora:lastDailyReset',todayKey);
+      localStorage.setItem(taskResetStorageKey,todayKey);
       await Promise.all(dailyDone.map(task=>
         apiFetch(`${API}/tasks/${task.id}/complete`,{
           method:'POST',
@@ -2773,14 +2780,23 @@ function renderPosts(){
 }
 function renderComments(){
   const el=document.getElementById('commentList');if(!el)return;
-  el.innerHTML=state.comments.length?state.comments.map(c=>`
+  const action=id=>`deleteComment(${JSON.stringify(String(id))})`;
+  el.innerHTML=state.comments.length?state.comments.map(c=>{
+    const deleteBtn=c.canDelete
+      ? `<button class="comment-delete" onclick="${action(c.id)}" title="Borrar comentario"><i class="fa fa-trash"></i></button>`
+      : '';
+    return `
     <div class="comment-item">
       <div class="comment-top">
         <span class="comment-user">${escapeHTML(c.user)}</span>
-        <span class="comment-time">${c.createdAt?'reciente':'ahora'}</span>
+        <div class="comment-actions">
+          <span class="comment-time">${c.createdAt?'reciente':'ahora'}</span>
+          ${deleteBtn}
+        </div>
       </div>
       <div class="comment-text">${escapeHTML(c.text)}</div>
-    </div>`).join(''):'<div class="task-meta" style="padding:10px 2px">Todavía no hay comentarios.</div>';
+    </div>`;
+  }).join(''):'<div class="task-meta" style="padding:10px 2px">Todavía no hay comentarios.</div>';
 }
 async function openComments(id){
   const p=state.posts.find(x=>x.id===id);
@@ -2838,6 +2854,32 @@ async function submitComment(){
     renderComments();renderPosts();
   }catch(err){
     showToast(err.message||'No pude publicar el comentario','error');
+  }
+}
+async function deleteComment(commentId){
+  const postId=state.currentCommentPost;
+  if(!postId||!commentId)return;
+  const comment=state.comments.find(c=>c.id===String(commentId));
+  if(!comment||!comment.canDelete)return;
+  if(!confirm('¿Borrar este comentario?'))return;
+
+  const previousComments=[...state.comments];
+  const post=state.posts.find(p=>p.id===postId);
+  const previousCount=post?post.comments:0;
+  state.comments=state.comments.filter(c=>c.id!==String(commentId));
+  if(post)post.comments=Math.max(0,Number(post.comments||0)-1);
+  renderComments();renderPosts();
+
+  try{
+    const response=await apiFetch(`${API}/community/${postId}/comments/${commentId}`,{method:'DELETE'});
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok||!payload.success)throw new Error(payload.error||'No se pudo borrar');
+    showToast('Comentario borrado','success');
+  }catch(err){
+    state.comments=previousComments;
+    if(post)post.comments=previousCount;
+    renderComments();renderPosts();
+    showToast(err.message||'No pude borrar el comentario','error');
   }
 }
 async function submitPost(){

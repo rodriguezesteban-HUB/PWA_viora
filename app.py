@@ -305,6 +305,7 @@ def map_task_row(row):
         "name": row.get("name"),
         "description": row.get("description") or "",
         "due_date": row.get("due_date"),
+        "period": row.get("period") or "diaria",
         "done": bool(row.get("done", False)),
         "createdAt": row.get("createdAt") or row.get("created_at"),
     }
@@ -366,13 +367,15 @@ def map_post_row(row, user_name=None):
         "createdAt": row.get("created_at"),
     }
 
-def map_comment_row(row, user_name=None):
+def map_comment_row(row, user_name=None, current_user_id=None):
+    comment_user_id = row.get("user_id") or row.get("userId")
     return {
         "id": row.get("id"),
         "postId": row.get("post_id") or row.get("postId"),
         "user": user_name or row.get("user") or "Usuario",
         "text": row.get("text"),
         "createdAt": row.get("created_at") or row.get("createdAt"),
+        "canDelete": bool(current_user_id and comment_user_id and str(comment_user_id) == str(current_user_id)),
     }
 
 def map_bet_row(row):
@@ -1231,6 +1234,7 @@ def create_task():
             "name": name,
             "description": body.get("description") or None,
             "due_date": body.get("due_date") or None,
+            "period": body.get("period") or "diaria",
             "done": False,
         }
         core = {"user_id", "name"}
@@ -1246,6 +1250,7 @@ def create_task():
         "name": name,
         "description": body.get("description") or "",
         "due_date": body.get("due_date") or None,
+        "period": body.get("period") or "diaria",
         "done": False,
         "createdAt": now_str(),
     }
@@ -1262,7 +1267,7 @@ def update_task(task_id):
     body = request.get_json(silent=True) or {}
 
     if SUPABASE_ENABLED and supabase:
-        update_fields = {k: body[k] for k in ("name", "description", "due_date", "done") if k in body}
+        update_fields = {k: body[k] for k in ("name", "description", "due_date", "period", "done") if k in body}
         if not update_fields:
             return err("Sin cambios para actualizar")
         try:
@@ -1277,7 +1282,7 @@ def update_task(task_id):
     task = next((t for t in tasks if t["id"] == task_id), None)
     if not task:
         return err("Tarea no encontrada", 404)
-    for field in ("name", "description", "due_date", "done"):
+    for field in ("name", "description", "due_date", "period", "done"):
         if field in body:
             task[field] = body[field]
     write_json(TASKS_FILE, tasks)
@@ -2091,13 +2096,15 @@ def get_comments(post_id):
             if user_ids:
                 users_res = supabase.table("users").select("id, name").in_("id", user_ids).execute()
                 users_map = {u["id"]: u.get("name") for u in (users_res.data or [])}
-            return ok([map_comment_row(c, users_map.get(c.get("user_id"))) for c in comments])
+            current_user_id = get_current_user_id()
+            return ok([map_comment_row(c, users_map.get(c.get("user_id")), current_user_id) for c in comments])
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
 
     comments = read_json(COMMUNITY_COMMENTS_FILE, [])
     comments = [c for c in comments if str(c.get("postId")) == str(post_id)]
-    return ok(sorted(comments, key=lambda c: c.get("createdAt", "")))
+    current_user_id = get_current_user_id()
+    return ok([map_comment_row(c, current_user_id=current_user_id) for c in sorted(comments, key=lambda c: c.get("createdAt", ""))])
 
 @app.route("/api/community/<post_id>/comments", methods=["POST"])
 def create_comment(post_id):
@@ -2127,7 +2134,7 @@ def create_comment(post_id):
             supabase.table("community_posts").update({"comments_count": new_count}).eq("id", post_id).execute()
             user_res = supabase.table("users").select("name").eq("id", get_current_user_id()).limit(1).execute()
             user_name = user_res.data[0].get("name") if user_res.data else "Usuario"
-            return ok(map_comment_row((res.data or [payload])[0], user_name), "Comentario publicado")
+            return ok(map_comment_row((res.data or [payload])[0], user_name, get_current_user_id()), "Comentario publicado")
         except Exception as e:
             return err(f"Error Supabase: {str(e)}", 502)
 
@@ -2140,6 +2147,7 @@ def create_comment(post_id):
     comment = {
         "id": str(uuid.uuid4()),
         "postId": post_id,
+        "userId": get_current_user_id(),
         "user": payload.get("name") or body.get("user") or "Usuario",
         "text": text,
         "createdAt": now_str(),
@@ -2149,7 +2157,70 @@ def create_comment(post_id):
     write_json(COMMUNITY_COMMENTS_FILE, comments)
     post["comments"] = int(post.get("comments", 0) or 0) + 1
     write_json(COMMUNITY_FILE, posts)
-    return ok(comment, "Comentario publicado")
+    return ok(map_comment_row(comment, current_user_id=get_current_user_id()), "Comentario publicado")
+
+@app.route("/api/community/<post_id>/comments/<comment_id>", methods=["DELETE"])
+def delete_comment(post_id, comment_id):
+    """Elimina un comentario propio."""
+    current_user_id = get_current_user_id()
+
+    if SUPABASE_ENABLED and supabase:
+        try:
+            comment_res = (
+                supabase.table("community_comments")
+                .select("id, post_id, user_id")
+                .eq("id", comment_id)
+                .eq("post_id", post_id)
+                .limit(1)
+                .execute()
+            )
+            if not comment_res.data:
+                return err("Comentario no encontrado", 404)
+            comment = comment_res.data[0]
+            if str(comment.get("user_id")) != str(current_user_id):
+                return err("Solo puedes borrar tus propios comentarios", 403)
+
+            post_res = supabase.table("community_posts").select("comments_count").eq("id", post_id).limit(1).execute()
+            delete_res = (
+                supabase.table("community_comments")
+                .delete()
+                .eq("id", comment_id)
+                .eq("post_id", post_id)
+                .eq("user_id", current_user_id)
+                .execute()
+            )
+            if not delete_res.data:
+                return err("Comentario no encontrado", 404)
+
+            if post_res.data:
+                current_count = int(post_res.data[0].get("comments_count", 0) or 0)
+                supabase.table("community_posts").update({"comments_count": max(0, current_count - 1)}).eq("id", post_id).execute()
+            return ok(msg="Comentario eliminado")
+        except Exception as e:
+            return err(f"Error Supabase: {str(e)}", 502)
+
+    comments = read_json(COMMUNITY_COMMENTS_FILE, [])
+    comment = next((c for c in comments if str(c.get("id")) == str(comment_id) and str(c.get("postId")) == str(post_id)), None)
+    if not comment:
+        return err("Comentario no encontrado", 404)
+
+    payload = get_auth_payload() or {}
+    comment_user_id = comment.get("userId") or comment.get("user_id")
+    owns_comment = bool(comment_user_id and str(comment_user_id) == str(current_user_id))
+    if not owns_comment and not comment_user_id:
+        owns_comment = (comment.get("user") or "Usuario") == (payload.get("name") or "Usuario")
+    if not owns_comment:
+        return err("Solo puedes borrar tus propios comentarios", 403)
+
+    comments = [c for c in comments if not (str(c.get("id")) == str(comment_id) and str(c.get("postId")) == str(post_id))]
+    write_json(COMMUNITY_COMMENTS_FILE, comments)
+
+    posts = read_json(COMMUNITY_FILE, [])
+    post = next((p for p in posts if str(p.get("id")) == str(post_id)), None)
+    if post:
+        post["comments"] = max(0, int(post.get("comments", 0) or 0) - 1)
+        write_json(COMMUNITY_FILE, posts)
+    return ok(msg="Comentario eliminado")
 
 @app.route("/api/community/<post_id>/vote", methods=["POST"])
 def vote_post(post_id):
@@ -2697,6 +2768,7 @@ if __name__ == "__main__":
     print("  POST   /api/community")
     print("  GET    /api/community/<id>/comments")
     print("  POST   /api/community/<id>/comments")
+    print("  DELETE /api/community/<id>/comments/<comment_id>")
     print("  POST   /api/community/<id>/vote")
     print("  DELETE /api/community/<id>")
     print("  ─── Usuario ───")
