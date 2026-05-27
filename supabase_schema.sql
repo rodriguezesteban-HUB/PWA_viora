@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
+  description TEXT,
+  due_date DATE,
   category VARCHAR(50) DEFAULT 'habitos' CHECK (category IN (
     'gym',
     'social',

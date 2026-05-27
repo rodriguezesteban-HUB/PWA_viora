@@ -162,7 +162,7 @@ COMMUNITY_FILE= os.path.join(DATA_DIR, "community.json")
 COMMUNITY_COMMENTS_FILE = os.path.join(DATA_DIR, "community_comments.json")
 USERS_FILE    = os.path.join(DATA_DIR, "users.json")
 AUTH_USERS_FILE = os.path.join(DATA_DIR, "auth_users.json")
-TASKS_TABLE = "habits"
+TASKS_TABLE = "tasks"
 ROUTINES_TABLE = "habit_routines"
 ROUTINE_LOGS_TABLE = "habit_routine_logs"
 
@@ -1287,6 +1287,7 @@ def create_task():
 
     if SUPABASE_ENABLED and supabase:
         payload = {
+            "id": str(uuid.uuid4()),
             "user_id": get_current_user_id(),
             "name": name,
             "description": body.get("description") or None,
@@ -1294,9 +1295,8 @@ def create_task():
             "period": body.get("period") or "diaria",
             "done": False,
         }
-        core = {"user_id", "name"}
         try:
-            res = supabase.table(TASKS_TABLE).insert(payload).execute()
+            res = _sb_insert(TASKS_TABLE, payload, {"id", "user_id", "name"})
             row = (res.data or [payload])[0]
             return ok(map_task_row(row), "Tarea creada")
         except Exception as e:
@@ -1328,8 +1328,13 @@ def update_task(task_id):
         if not update_fields:
             return err("Sin cambios para actualizar")
         try:
-            res = supabase.table(TASKS_TABLE).update(update_fields).eq("id", task_id).eq("user_id", get_current_user_id()).execute()
-            if not res.data:
+            res = _sb_update(
+                TASKS_TABLE,
+                update_fields,
+                {"id", "user_id"},
+                {"id": task_id, "user_id": get_current_user_id()},
+            )
+            if not res or not res.data:
                 return err("Tarea no encontrada", 404)
             return ok(map_task_row(res.data[0]), "Tarea actualizada")
         except Exception as e:
@@ -2484,7 +2489,7 @@ def _execute_agent_tool(tool_name, tool_input, user_id):
                 "done": False,
             }
             if SUPABASE_ENABLED and supabase:
-                res = supabase.table(TASKS_TABLE).insert(payload).execute()
+                res = _sb_insert(TASKS_TABLE, payload, {"id", "user_id", "name"})
                 row = (res.data or [payload])[0]
                 return f"Tarea '{row.get('name', name)}' creada correctamente."
             return "Supabase no disponible"
